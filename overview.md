@@ -31,12 +31,12 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 **Real-life scenario:** Your team requires all SQL queries to use parameterized statements (no string interpolation). You add `.claude/rules/sql-safety.md` stating this. Now Claude will always write parameterized queries in this project, even if a prompt asks for a quick prototype.
 
 **Files involved:**
-- `.claude/rules/sql-safety.md` — active rule in this repo
+- `.claude/rules/markdown.md` — active rule scoped to `**/*.md` files
 
 **How to run:**
 1. Open the repo in Claude Code.
-2. Ask: *"Write a function that fetches a user by ID from the database."*
-3. Claude writes a parameterized query and explains why string interpolation was avoided.
+2. Ask Claude to edit any `.md` file (e.g., add a sentence to `README.md`).
+3. Claude's response begins with `[MD rule active]` — proof the glob-scoped rule fired.
 
 ---
 
