@@ -31,84 +31,89 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 **Real-life scenario:** Your team requires all SQL queries to use parameterized statements (no string interpolation). You add `.claude/rules/sql-safety.md` stating this. Now Claude will always write parameterized queries in this project, even if a prompt asks for a quick prototype.
 
 **Files involved:**
-- `.claude/rules/markdown.md` — active rule scoped to `**/*.md` files
+- `.claude/rules/markdown.md` — active rule scoped to `**/*.broken_md` files: ordered lists must use ordinal text ("The first.", "The second.") instead of numeric bullets
 
 **How to run:**
 1. Open the repo in Claude Code.
-2. Ask Claude to edit any `.md` file (e.g., add a sentence to `README.md`).
-3. Claude's response begins with `[MD rule active]` — proof the glob-scoped rule fired.
+2. Ask Claude to create or edit a `*.broken_md` file containing a numbered list.
+3. Claude writes the list as "The first. / The second. / …" — proof the path-scoped rule fired.
 
 ---
 
 ## 3. Slash Commands
 
-**What it is:** Markdown files in `.claude/commands/`. Each file defines a custom slash command invoked as `/command-name` in the Claude Code prompt. The file body is a prompt template that Claude executes when you type the command.
+**What it is:** Markdown files in `.claude/commands/`. Each file defines a custom slash command invoked as `/command-name` in the Claude Code prompt. The file body is a prompt template — with optional frontmatter and arguments — that Claude executes when you type the command.
 
-**When to use it:** When you repeat the same multi-step workflow: generating a PR summary, scaffolding a new module, running a specific review checklist. Commands package the workflow so anyone on the team invokes it with one word.
+**When to use it:** When you repeat the same multi-step workflow: scaffolding files, running a review checklist, or orchestrating a larger task. Commands package the workflow so anyone on the team invokes it with one word.
 
-**Real-life scenario:** Your team always writes PR descriptions in the same format (summary, motivation, test plan). You create `.claude/commands/pr-summary.md`. Any developer types `/pr-summary` and gets a fully formatted PR description for the current diff — no copy-pasting a template.
+**Real-life scenario:** Your team keeps hand-writing new slash commands and getting the frontmatter wrong. You create `.claude/commands/create-command.md` — a command that scaffolds *other* commands: it fetches the latest spec, checks for name collisions, and writes a correct command file from a single prompt.
 
 **Files involved:**
-- `.claude/commands/pr-summary.md` — active command in this repo
+- `.claude/commands/create-command.md` — scaffolds new slash commands (used to build `/reverse-engineer`)
+- `.claude/commands/reverse-engineer.md` — a larger, real command (see §9)
 
 **How to run:**
-1. Make any small edit to a file in this repo (so there is a diff).
-2. Type: `/pr-summary`
-3. Claude generates a structured PR description from the staged changes.
+1. Open the repo in Claude Code.
+2. Type: `/create-command my-command "What it does" "Read, Grep"`
+3. Claude writes `.claude/commands/my-command.md`, ready to use.
 
 ---
 
 ## 4. Skills
 
-**What it is:** Markdown files in `.claude/skills/`. Skills are reusable, named capabilities invoked programmatically via the `Skill` tool — by Claude itself or by other agents. Unlike slash commands (user-typed), skills are building blocks that agents compose together.
+**What it is:** Directories under `.claude/skills/`, each with a `SKILL.md` (frontmatter `name` + `description`, then a body). Skills are reusable, named capabilities invoked via the `Skill` tool — by Claude, by a command, or by another agent. Claude auto-engages a skill when a request matches its `description`. Unlike slash commands (user-typed), skills are building blocks that get composed together.
 
-**When to use it:** When you want a consistent, reusable procedure for a subtask: a specific review dimension, test generation, documentation extraction. Any command or agent can delegate to a skill by name.
+**When to use it:** When you want a consistent, reusable procedure for a subtask: a review dimension, test generation, or — as here — rendering documentation in a fixed format.
 
-**Real-life scenario:** You build a skill called `check-accessibility` that checks a React component for missing `aria-*` attributes, missing `alt` text, and keyboard navigation issues. Any review command or sub-agent can invoke it without duplicating the logic.
+**Real-life scenario:** You want architecture docs written the same way every time. You build `c4-documentation` (renders C4 diagrams) and `project-overview` (writes a structured overview). Any command or agent now produces consistent docs by engaging the skill instead of re-inventing the format.
 
 **Files involved:**
-- `.claude/skills/check-accessibility.md` — active skill in this repo
+- `.claude/skills/c4-documentation/SKILL.md` — renders C4 architecture docs
+- `.claude/skills/4plus1-documentation/SKILL.md` — renders Kruchten 4+1 docs
+- `.claude/skills/project-overview/SKILL.md` — writes a structured project overview
 
 **How to run:**
 1. Open the repo in Claude Code.
-2. Ask: *"Use the check-accessibility skill on CLAUDE.md"* (or any file).
-3. Claude invokes the skill and reports findings with line references.
+2. Ask: *"Produce a C4 architecture overview of this repo."*
+3. Claude engages the `c4-documentation` skill (matched by its description) and writes the docs.
 
 ---
 
 ## 5. Sub-agents
 
-**What it is:** Claude Code can spawn independent sub-agents using the `Agent` tool. Each sub-agent gets its own context, tools, and prompt. The parent agent coordinates results. Forked sub-agents run in parallel — their tool output stays out of the parent's context.
+**What it is:** Claude Code can spawn independent sub-agents via the `Agent` tool. Each gets its own context, tools, model, and prompt, and returns only a summary to the parent — keeping large intermediate output out of the parent's context. Reusable sub-agents are defined as files in `.claude/agents/` (frontmatter: `name`, `description`, `tools`, `model`, `background`); the parent invokes them by `subagent_type`. With `background: true` they run in parallel.
 
-**When to use it:** When you need multiple independent perspectives simultaneously (e.g., security review + performance review), or when a task is too large for one context window.
+**When to use it:** When you need multiple independent perspectives at once, or when a task is too large for one context window — e.g., fanning out several read-only investigators across a big codebase.
 
-**Real-life scenario:** You want to audit this repo for two concerns at once: rules/commands that have gaps in their documentation, and any inconsistency between `CLAUDE.md` and `overview.md`. You fork two agents — one checks documentation completeness, the other checks cross-file consistency — and they run in parallel.
+**Real-life scenario:** Reverse-engineering a legacy codebase, you fan out six specialized readers — tech stack, module map, external integrations, data flows, deployment, runtime — all at once. Each returns a compact summary; the parent merges them. This is the fact-gathering phase of the `/reverse-engineer` capstone (§9).
 
 **Files involved:**
-- `.claude/commands/audit.md` — slash command that orchestrates the two parallel agents
+- `.claude/agents/tech-stack.md`, `module-map.md`, `external-integrations.md`, `data-flows.md`, `deployment-infra.md`, `runtime-process.md` — six read-only sub-agents
+- `.claude/commands/reverse-engineer.md` — orchestrates them in parallel (Phase 2)
 
 **How to run:**
 1. Open the repo in Claude Code.
-2. Type: `/audit`
-3. Watch two agents run in parallel; the parent synthesizes a single findings report.
+2. Type: `/reverse-engineer .`
+3. Watch the six agents run in parallel; check `.claude/logs/subagents.log` to confirm all six fired.
 
 ---
 
 ## 6. Hooks
 
-**What it is:** Shell commands registered in `.claude/settings.json` under `hooks`. Claude Code executes them automatically at lifecycle events: `PreToolUse`, `PostToolUse`, `Stop`, `Notification`. Hooks run outside Claude — they are plain shell commands that fire regardless of what Claude does.
+**What it is:** Shell commands that Claude Code executes automatically at lifecycle events — `PreToolUse`, `PostToolUse`, `SubagentStop`, `Stop`, `Notification`, and more. The **registration** (event → command) lives in `.claude/settings.json` under `hooks`; the **script** it runs is a plain file you keep wherever you like (`.claude/hooks/` is the conventional spot). Hooks run outside Claude at the harness level, so they fire regardless of what Claude decides to do.
 
-**When to use it:** When side effects must happen unconditionally: audit logging every file edit, auto-formatting after a write, blocking a dangerous command before it runs, notifying a teammate when a long task finishes.
+**When to use it:** When side effects must happen unconditionally: audit logging, auto-formatting after a write, blocking a dangerous command before it runs, or recording facts you don't want to depend on Claude self-reporting.
 
-**Real-life scenario:** Your team wants an immutable audit log of every file Claude edits. A `PostToolUse` hook appends `{timestamp, tool, file}` to `audit.log` on every `Edit` or `Write` call. No trust in Claude required — the hook runs at the harness level.
+**Real-life scenario:** You run the `/reverse-engineer` capstone (§9) and want deterministic proof that all six fact-gathering sub-agents actually ran — not just Claude's word for it. A `SubagentStop` hook appends each finishing agent's `agent_type` to a log at the harness level, giving you an independent audit trail.
 
 **Files involved:**
-- `.claude/settings.json` — contains the `PostToolUse` hook definition
+- `.claude/settings.json` — registers the `SubagentStop` hook (matched to the six reverse-engineer agents), referencing the script via `${CLAUDE_PROJECT_DIR}`
+- `.claude/hooks/log-subagent.sh` — the script the hook runs; appends `{timestamp, agent_type}` to `.claude/logs/subagents.log`
 
 **How to run:**
 1. Open the repo in Claude Code (hooks load from `.claude/settings.json` automatically).
-2. Ask Claude to make any small edit to `overview.md`.
-3. A new line appears in `audit.log` at the repo root with the timestamp and file path.
+2. Run `/reverse-engineer .` so the six sub-agents fire.
+3. Open `.claude/logs/subagents.log` — it lists each agent with a timestamp, confirming all six ran.
 
 ---
 
@@ -120,20 +125,31 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 
 **Real-life scenario:** Your team tracks work in Jira. You register the Atlassian MCP server. Claude can now fetch a ticket's description and acceptance criteria, then generate implementation code — without you copying anything from Jira.
 
+**Status in this repo:** No MCP server is registered yet — `.claude/settings.json` currently defines only the hook from §6. The steps below show how to add one; the server name and launch command depend on the specific MCP server you choose.
+
 **Files involved:**
-- `.claude/settings.json` — `mcpServers` block with the Atlassian MCP server entry
+- `.claude/settings.json` — where the `mcpServers` block goes (not present until you add it)
 
 **How to run:**
-1. Add your Atlassian credentials to `.claude/settings.json` (see the commented template in the file).
+1. Add an `mcpServers` block to `.claude/settings.json`, for example:
+   ```json
+   "mcpServers": {
+     "my-server": {
+       "command": "npx",
+       "args": ["-y", "<mcp-server-package>"]
+     }
+   }
+   ```
 2. Restart Claude Code.
-3. Ask: *"Summarize the open tickets assigned to me in project X."*
-4. Claude calls the MCP tool and returns live Jira data.
+3. Ask a question that needs the server's data; Claude calls the MCP tool and returns live results.
 
 ---
 
 ## 8. External Agents — superpowers
 
 **What it is:** [superpowers](https://github.com/obra/superpowers) is an open-source framework that extends Claude Code via MCP with additional capabilities: persistent cross-session memory, headless browser automation, and sandboxed code execution. Its tools appear alongside built-in Claude Code tools once registered.
+
+**Status in this repo:** Not installed or registered by default — the steps below are the optional setup. Once registered it appears as an `mcpServers` entry in `.claude/settings.json`, exactly like §7.
 
 **When to use it:** When you need capabilities beyond the default toolset — especially persistent memory that survives across sessions, or browser automation for tasks that involve web UIs.
 
@@ -160,3 +176,25 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 4. Ask: *"Remember that we use Zustand for state management in this project."*
 5. Close Claude Code, reopen it, and ask: *"What state management library did we decide on?"*
 6. Claude recalls the decision without any prompt from you.
+
+---
+
+## 9. Reverse-Engineering a Codebase (capstone: command + sub-agents + skills + hook)
+
+**What it is:** A single slash command, `/reverse-engineer`, that orchestrates the other features end-to-end. It gathers facts about an unfamiliar codebase once (via six parallel sub-agents), then renders them through three documentation skills into two architecture notations (C4 and Kruchten 4+1) plus a standalone overview — so both notations describe the *same* facts and can be compared. A SubagentStop hook logs which agents ran.
+
+**When to use it:** When you inherit a legacy or undocumented system and need architecture docs fast, or when you want to compare how C4 vs 4+1 describe the same system.
+
+**Real-life scenario:** You take over a legacy service with no docs. You run one command and get `docs/c4/`, `docs/4plus1/`, an `overview.md`, and a `COMPARISON.md` — enough to onboard and to decide which diagram style your team should standardize on.
+
+**Files involved:**
+- `.claude/commands/reverse-engineer.md` — the orchestrator (4 phases)
+- `.claude/agents/{tech-stack,module-map,external-integrations,data-flows,deployment-infra,runtime-process}.md` — six read-only fact-gathering sub-agents (`background: true`, haiku/sonnet tiers)
+- `.claude/skills/{c4-documentation,4plus1-documentation,project-overview}/SKILL.md` — the three rendering skills
+- `.claude/settings.json` + `.claude/hooks/log-subagent.sh` — SubagentStop hook that records which agents fired to `.claude/logs/subagents.log`
+
+**How to run:**
+1. Open the repo (or any target project) in Claude Code.
+2. Type: `/reverse-engineer .`
+3. Watch the six agents run in parallel, then the three skills render docs.
+4. Review the eleven files under `docs/`, and `.claude/logs/subagents.log` to confirm all six agents ran.

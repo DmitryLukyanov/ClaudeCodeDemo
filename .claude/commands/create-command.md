@@ -2,7 +2,7 @@
 allowed-tools: WebFetch, Write, Read, Bash, Glob
 argument-hint: <command-name> <description> [allowed-tools] [prompt-body]
 description: Scaffold a new slash command file in .claude/commands/ from arguments
-model: claude-sonnet-4-6
+model: claude-sonnet-5
 ---
 
 ## Your task
@@ -15,7 +15,14 @@ Parse the arguments as follows:
 - **$0** — command name (no slashes, just the name, e.g. `review-pr`)
 - **$1** — short description (quoted string)
 - **$2** — comma-separated allowed-tools list (quoted, e.g. `"Read,Grep,Bash(git diff *)"`) — optional, defaults to `Read, Grep, Glob, Bash`
-- **$3 and beyond** — the body/prompt text for the command — optional, you will generate a sensible default if omitted
+- **`--model <id>`** — optional token that may appear anywhere in the arguments. If present, use it as the generated command's frontmatter `model` and remove it from the body text. If absent, default to `claude-sonnet-5`.
+- **$3 and beyond** (everything left after removing the above) — the body/prompt text for the command — optional, you will generate a sensible default if omitted.
+
+The body text may be either a ready-to-use command body OR a natural-language spec of what
+the command should do. If it describes multiple phases, named subagents to spawn, or skills
+to engage, **faithfully expand it into a clearly structured command** — preserve the phases,
+emit explicit `Agent` tool calls by `subagent_type` for each named subagent, and describe
+skill usage by intent. Do NOT collapse a detailed spec into a thin generic default.
 
 ## Step 1 — Fetch the latest slash command spec
 
@@ -30,7 +37,7 @@ Use the fetched spec to confirm the correct frontmatter keys, placeholder syntax
 
 Run the check script:
 
-!`bash .claude/scripts/check-commands.sh`
+!`bash .claude/scripts/helpers.sh check-commands`
 
 **You MUST start your response to the user with this exact block (fill in the real output):**
 
@@ -49,7 +56,7 @@ Build the markdown file content following this structure (adjust based on what t
 allowed-tools: <tools from $2, or sensible defaults>
 argument-hint: <generate a concise hint from the command purpose>
 description: <$1>
-model: claude-sonnet-4-6
+model: <model id from --model, or claude-sonnet-5>
 ---
 
 <body: use $3+ if provided, otherwise generate a clear, actionable prompt.

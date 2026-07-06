@@ -1,6 +1,6 @@
 ---
 paths:
-  - "**/*.md"
+  - "**/*.broken_md"
 ---
 
 # Markdown File Rules
