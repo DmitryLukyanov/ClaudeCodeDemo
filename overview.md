@@ -148,37 +148,28 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 
 ---
 
-## 8. External Agents — superpowers
+## 8. External Skills — superpowers
 
-**What it is:** [superpowers](https://github.com/obra/superpowers) is an open-source framework that extends Claude Code via MCP with additional capabilities: persistent cross-session memory, headless browser automation, and sandboxed code execution. Its tools appear alongside built-in Claude Code tools once registered.
+**What it is:** [superpowers](https://github.com/obra/superpowers) is an open-source skills library for Claude Code. It ships ~14 reusable skills covering the full development workflow: `brainstorming`, `writing-plans`, `subagent-driven-development`, `systematic-debugging`, `test-driven-development`, and more. Once installed, skills are invoked as `superpowers:<skill-name>` from any command, agent, or prompt.
 
-**Status in this repo:** Not installed or registered by default — the steps below are the optional setup. Once registered it appears as an `mcpServers` entry in `.claude/settings.json`, exactly like §7.
+**When to use it:** When you want battle-tested, composable workflow procedures without writing them yourself — especially for multi-step development processes like plan execution with per-task review gates.
 
-**When to use it:** When you need capabilities beyond the default toolset — especially persistent memory that survives across sessions, or browser automation for tasks that involve web UIs.
-
-**Real-life scenario:** You want Claude to remember architectural decisions across sessions (e.g., "we chose Zustand over Redux for state management"). With superpowers' memory tool, Claude stores that decision and recalls it next session automatically — no re-explaining required.
+**Real-life scenario:** You're running `/reverse-engineer` and want each fact-gathering agent's output reviewed before the docs are written. Instead of building a reviewer from scratch, you invoke `superpowers:subagent-driven-development` — it provides the implementer → reviewer → fix-loop pattern ready to use.
 
 **Files involved:**
-- `.claude/settings.json` — `mcpServers` entry for superpowers (added after install)
+- No files changed in this repo — superpowers is installed as a Claude Code plugin, not a local file.
 
 **How to run:**
-1. Install superpowers globally:
+1. In any Claude Code session, install the plugin:
    ```
-   npm install -g @obra/superpowers
+   /plugin install superpowers@claude-plugins-official
    ```
-2. Register it in `.claude/settings.json`:
-   ```json
-   "mcpServers": {
-     "superpowers": {
-       "command": "superpowers",
-       "args": ["mcp"]
-     }
-   }
+2. Restart Claude Code.
+3. Invoke any skill by name in a prompt or command:
    ```
-3. Restart Claude Code.
-4. Ask: *"Remember that we use Zustand for state management in this project."*
-5. Close Claude Code, reopen it, and ask: *"What state management library did we decide on?"*
-6. Claude recalls the decision without any prompt from you.
+   Use superpowers:subagent-driven-development to execute this plan.
+   ```
+4. Claude loads the skill's `SKILL.md` and follows its process exactly.
 
 ---
 

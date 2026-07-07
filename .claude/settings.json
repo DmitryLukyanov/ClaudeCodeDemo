@@ -10,7 +10,11 @@
       {
         "matcher": "tech-stack|module-map|external-integrations|data-flows|deployment-infra|runtime-process",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/log-subagent.sh\"", "shell": "bash" }
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/log-subagent.sh\"",
+            "shell": "bash"
+          }
         ]
       }
     ],
@@ -18,23 +22,38 @@
       {
         "matcher": "Write|Edit",
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-reverse-engineer-docs.sh\"", "shell": "bash" }
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-reverse-engineer-docs.sh\"",
+            "shell": "bash"
+          }
         ]
       }
     ],
     "UserPromptSubmit": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-start.sh\"", "shell": "bash" }
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-start.sh\"",
+            "shell": "bash"
+          }
         ]
       }
     ],
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-complete.sh\"", "shell": "bash" }
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-complete.sh\"",
+            "shell": "bash"
+          }
         ]
       }
     ]
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true
   }
 }
