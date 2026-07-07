@@ -1,68 +1,71 @@
 # C4 vs 4+1 — Comparison for ClaudeCodeDemo
 
-This document compares the C4 and Kruchten 4+1 outputs produced by `/reverse-engineer` for this specific system. The goal is not to evaluate the notations in the abstract but to identify what each approach surfaced well, compressed away, or expressed more clearly given the nature of a Claude Code configuration repository.
+This comparison is grounded in the actual diagrams produced for this specific system. Generic notation trivia is omitted — the focus is on what each approach revealed, compressed, or made harder to see when applied to ClaudeCodeDemo.
 
 ---
 
-## What C4 surfaced well
+## What C4 did well
 
-**External boundary legibility.** The C4 diagrams make the "inside vs outside" distinction immediately visible. `docs/c4/context.md` shows at a glance that ClaudeCodeDemo has two external systems (Anthropic Claude API, code.claude.com), two optional external systems (superpowers MCP, Playwright MCP), and one human actor (Developer). The `+===+` notation for external systems creates a strong visual contrast with `+---+` internal boxes. A reader scanning for "what does this system call externally?" gets the answer in five seconds.
+**Static structure at a glance.** The L1–L3 diagrams give a clean read of what exists and how things are bounded. For a reader unfamiliar with Claude Code, `context.md` immediately answers "what is this and who uses it?" in a single screen. `container.md` answers "what are the storage units?" The box-and-boundary notation makes the Config Repository / Session Logs / Generated Docs split obvious without any prior knowledge of Claude Code conventions.
 
-**Technology tags at L2.** The container diagram's `[type: Technology]` tags — `[Process: Claude Code]`, `[Script: Bash]`, `[File: Log]` — make it easy to distinguish processes from scripts from data stores without reading prose. For a system where all files look similar (they're all Markdown or Bash), this disambiguation is genuinely useful.
+**The guard hook as a relationship.** The `component.md` diagram surfaced the `guard-reverse-engineer-docs.sh ←→ tracker file ←→ log-subagent.sh` triangle as a named relationship, not just an implementation detail. This was easy to express as labeled arrows between named component boxes — C4 is well suited to showing which components share state.
 
-**Altitude discipline.** The L1 → L2 → L3 zoom structure gives readers a controlled entry point. L1 shows the system as a black box, L2 opens it into runnable units, L3 zooms into the CLI's internal components. A reader can stop at whatever level of detail they need. The 4+1 views don't offer this graduated zoom — a reader has to know which view to start with.
+**Deployment is unambiguous.** `deployment.md` makes the "single workstation, no cloud" topology immediately obvious. For this system, that's the most important infrastructure fact, and C4 delivers it in one diagram.
 
-**Two-log detail.** This run's C4 container diagram is the only view that distinguishes `subagents.log` from `subagents-debug.log` as separate containers, making the fallback audit path visible at the structural level.
-
----
-
-## What 4+1 surfaced well
-
-**Concurrency and runtime ordering.** The Process view (`docs/4plus1/process.md`) makes the fan-out/sync-point pattern visible in a way no C4 diagram can. The six concurrent subagent processes, the explicit sync point between Phase 2 and Phase 3, the sequential ordering constraint within Phase 3, and the async SubagentStop sidecar — all of these are architectural decisions with correctness implications, and all are invisible in C4's structural diagrams.
-
-**Layer dependencies.** The Development view (`docs/4plus1/development.md`) shows the layered structure of `.claude/`: orchestration at the top, fact-gathering and rendering in the middle, utility and monitoring below, constraint layer at the base. The layer diagram makes forbidden dependencies explicit (fact-gathering agents never invoke rendering skills; rendering skills never spawn agents). C4 shows what calls what; the Development view shows what is allowed to call what.
-
-**Scenario 3 exposed the hook bug.** The Scenarios (+1) view (`docs/4plus1/scenarios.md`) traced the SubagentStop flow end-to-end and surfaced the known bug: 26 events fired, only 2 resolved `agent_type`, 24 logged "unknown", and `subagents-debug.log` is effectively empty despite being the intended fallback — meaning the `[ -z "$agent" ]` guard is not triggering as expected. This bug is invisible in all four structural views; it only becomes visible when you trace an actual flow through the hook's parsing logic.
-
-**Model-tier distinction.** The Logical view's `<<agent>>` stereotypes with model labels (haiku vs sonnet) surfaced the deliberate cost/depth tradeoff embedded in the agent definitions — haiku for fast structural scans, sonnet for deeper reasoning. This distinction appears nowhere in the C4 container diagram.
+**Skimmability.** A reader can pick up any of the four C4 files independently and understand it. The fixed legend and consistent box notation reduce cognitive load across files.
 
 ---
 
-## What each hid or compressed
+## What C4 compressed or hid
 
-| C4 | 4+1 |
-|---|---|
-| Concurrency invisible — no way to show 6 concurrent processes or the sync point | No external boundary notation — "what is outside the system?" is not a first-class 4+1 concern |
-| Phase 3 sequential ordering constraint is not expressible | Development view requires the reader to know which directories constitute "layers" — not self-explaining |
-| SubagentStop async sidecar is invisible in all four C4 levels | Physical view is sparse for a local-only system — adds little new information here |
-| Optional external systems (MCP) require prose footnotes rather than first-class diagram elements | Scenarios require significant background knowledge to write well; easy to pick the wrong three |
-| Model-tier difference (haiku vs sonnet) between agents is not representable | UML-flavored notation is unfamiliar to readers who only know C4 |
+**Phase 2 parallelism is invisible.** The six agents appear as six identical boxes in `component.md` with arrows from the orchestrator. Nothing in the diagram conveys that all six fire simultaneously or that the SubagentStop hook fires once per completing agent. A reader could easily misread this as sequential execution.
 
----
+**Hook firing order and lifecycle is absent.** `component.md` shows hooks as boxes with labels, but the triggering events (UserPromptSubmit, Stop, SubagentStop, PreToolUse) are only in the key table, not the diagram itself. The sequencing that makes the tracker gate work — truncate → agents run → hooks append → guard reads — is not visible in any C4 diagram.
 
-## Which was more skimmable
+**The tracker gate mechanism.** The most fragile coupling in the system (tracker truncated at Phase 1, written by hooks in Phase 2, read by guard in Phase 3) requires prose explanation in the component key. C4 boxes and arrows cannot express temporal ordering.
 
-**C4 is more skimmable for "what is this system?"** The L1 context diagram answers "who uses it, what does it call externally" in under five seconds. The `+---+` box notation is visually clean.
-
-**4+1 is more skimmable for "how does this system behave?"** The Process view answers questions about ordering, concurrency, and fault modes that a C4 container diagram cannot. The Scenarios view is the fastest entry point for a developer who wants to understand the system by example rather than by structure.
+**Skills running serially inside the orchestrator context** vs. agents running in parallel as separate processes — this distinction is absent from C4. Both appear as similar-looking arrows from the same orchestrator box.
 
 ---
 
-## What a reader would miss reading only one
+## What 4+1 did well
 
-**Reading only C4:** You would miss the concurrency model entirely. You would not know that Phase 2 is a fan-out of 6 independent processes, that there is a hard sync point before Phase 3, that Phase 3 runs sequentially, or that the SubagentStop hook fires asynchronously. You would also miss the layering constraints (what is forbidden to call what) and the hook bug.
+**The process view made concurrency explicit.** `process.md` is the diagram that most clearly shows the two tiers of the system: six concurrent agent processes in Phase 2, three sequential skill invocations in Phase 3. The lifetime annotations (minutes vs. < 1s) and the `background:true` note for agents give a reader an accurate mental model of what actually runs and for how long.
 
-**Reading only 4+1:** You would have a less clear picture of the external boundary — which systems are inside the operator's control and which are not. The `+===+` external system notation in C4 has no direct equivalent in 4+1. You would also miss the clean L1/L2/L3 zoom that lets a reader enter at the right altitude.
+**Scenarios are the most readable entry point.** `scenarios.md` traces the full `/reverse-engineer` workflow as a sequence diagram that crosses logical, process, physical, and enforcement concerns simultaneously. A reader who only reads one file from either architecture doc set will get the most complete picture from `scenarios.md` — more than from any single C4 diagram.
+
+**Hook lifecycle is a first-class citizen.** `process.md` shows every hook as a named process box with its triggering event and its output, in a diagram that makes the event-driven model legible. The guard hook's `permissionDecision: ask` behavior — soft enforcement, not hard block — is visible in the process view in a way it never is in any C4 diagram.
+
+**Logical view captured stereotypes.** Tagging components as `<<orchestrator>>`, `<<agent: haiku>>`, `<<skill>>`, `<<hook: SubagentStop>>` surfaced the heterogeneity of the system's "modules" in a way C4's uniform boxes did not. Knowing that three agents run on haiku and three on sonnet matters for cost and latency reasoning — it fits naturally in a stereotype tag.
 
 ---
 
-## Recommended reading order
+## What 4+1 compressed or hid
 
-For a developer new to this codebase:
+**Harder to skim.** The five 4+1 files require more context to read independently. `logical.md` makes little sense without knowing what Claude Code is. `development.md` describes a layering that is entirely conventional (not technically enforced), which may mislead a reader into thinking there is a real build boundary. C4's context-first ordering is more forgiving.
 
-1. **C4 L1 (context.md)** — understand the external boundary in 30 seconds
-2. **4+1 Process (process.md)** — understand the concurrency model and Phase ordering
-3. **4+1 Scenarios (scenarios.md)** — trace the three main flows end-to-end
-4. **C4 L3 (component.md)** — understand the internal components of the CLI
-5. **4+1 Development (development.md)** — understand layer dependencies and what is forbidden
-6. **C4 Deployment + 4+1 Physical** — both say "everything local except Anthropic API"; either one suffices
+**Physical view is thin for this system.** With a single workstation and no cloud, `physical.md` is mostly a restatement of "everything is local." The Physical view shines on distributed systems; for ClaudeCodeDemo, it added less than C4's deployment diagram (which made the same point more concisely).
+
+**Scenarios require effort to write correctly.** The sequence diagrams in `scenarios.md` require careful lifeline alignment and notation discipline. They are the most valuable artifact in the 4+1 set, but also the most expensive to produce and maintain.
+
+---
+
+## Side-by-side: what a reader would miss reading only one
+
+| Question | C4 alone | 4+1 alone |
+|---|---|---|
+| "What are the storage units?" | Fully answered in `container.md` | Only in `logical.md` and `development.md`, less cleanly |
+| "How does the guard hook work?" | Key table only; no diagram | `process.md` + `scenarios.md` make it clear |
+| "Do the 6 agents run in parallel?" | Not visible | Explicit in `process.md` |
+| "What is the deployment topology?" | `deployment.md` answers directly | `physical.md` answers, but more verbosely |
+| "What is the end-to-end flow?" | No sequence diagrams | `scenarios.md` traces it fully |
+| "What model does each agent use?" | Not surfaced | `logical.md` stereotypes show haiku vs. sonnet |
+| "What connects to external services?" | `context.md` and `component.md` key | `scenarios.md` Scenario 3 shows it in flow |
+
+---
+
+## Recommendation for this system
+
+For ClaudeCodeDemo specifically, the **4+1 process view and scenarios view** are the most informative artifacts — they reveal the runtime behavior that makes the repo unusual (concurrent agents, hook-driven ordering, tracker gate). The **C4 context and container diagrams** are the most skimmable entry points for a reader who knows nothing about the project.
+
+A reader who only has time for two files should read: `docs/c4/context.md` (orientation) and `docs/4plus1/scenarios.md` (how it actually works).

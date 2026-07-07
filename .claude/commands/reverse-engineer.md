@@ -1,6 +1,6 @@
 ---
 allowed-tools: Agent, Read, Glob, Grep, Write, Skill
-argument-hint: [path-to-codebase] (defaults to current working directory)
+argument-hint: "[path-to-codebase] (defaults to current working directory)"
 description: Reverse-engineer a codebase into C4 + 4+1 architecture docs and an overview
 model: sonnet
 ---
@@ -25,7 +25,14 @@ Do not skip phases and do not let a later phase re-scan the codebase from scratc
 
 ## PHASE 1 — Inventory (do this yourself, in main context — cheap, no subagents)
 
-Before spawning anything, get cheap orientation directly:
+Before anything else, reset this run's agent-completeness tracker so stale completions from
+a previous run can't satisfy this run's guard later in Phase 3:
+
+```
+mkdir -p .claude/logs && : > .claude/logs/reverse-engineer-run.tracker
+```
+
+Then get cheap orientation directly:
 
 1. Detect languages and build tooling — look for manifest files (`package.json`, `go.mod`, `*.csproj`, `pom.xml`, `requirements.txt`, `Cargo.toml`, etc.), lockfiles, and CI config.
 2. Locate entry points and top-level structure — use `Glob` for top-level directories and likely entry files (`main.*`, `index.*`, `Program.*`, `cmd/`, `src/`), and `Read` a handful of the most obviously important files (README, top-level config).

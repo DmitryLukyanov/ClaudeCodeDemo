@@ -1,120 +1,147 @@
 # 4+1 Development View — ClaudeCodeDemo
 
-The development view shows how the codebase is organized into named build units and the dependency relationships between layers. Because ClaudeCodeDemo is a configuration repository (not compiled code), the "build units" are directories of Markdown and Bash files, each with a distinct architectural role. The layering makes the coupling visible: orchestrators at the top depend downward on fact-gatherers and renderers, which depend on utilities and config at the base. There are no upward dependencies and no circular dependencies.
+The development view shows how the repository is organized as source units and how those units depend on each other. ClaudeCodeDemo has no build system — there are no compiled artifacts or package manifests. The "build units" are directories of Markdown files and Bash scripts, layered by how Claude Code consumes them: foundational configuration at the bottom, feature artifacts (commands, skills, agents, hooks) in the middle, and generated output at the top. Understanding this layering is important because editing a lower layer affects all higher layers that depend on it.
 
-## Diagram
+---
+
+## Legend
 
 ```
-Legend:
+Actors / External Agents
   (( Actor Name ))              human user, external system, or timer
 
+Component / Object / Subsystem
   .-----------------------.
   | Name                  |
   | <<stereotype>>        |    stereotype: service, module, subsystem, controller, etc.
   '-----------------------'
 
-  Infrastructure Node  (Physical view only)
+Infrastructure Node  (Physical view only)
   [[ Node Name                ]]
 
-  Relationships
+Relationships
   ─────────────────>   label          synchronous call / association
   - - - - - - - - ->   label          dependency / uses / sends-to (async)
   ════════════════>   label          IPC / queue message / event
-
-
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  Root Context Layer  (auto-loaded into every session)
-
-│  .-------------------------------------.                               │
-   | CLAUDE.md                           |
-│  | <<context>>                         |   injected into all sessions   │
-   | project purpose + layout            |
-│  '-------------------------------------'                               │
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-                          | injected into
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ v ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  Orchestration Layer  (.claude/commands/)
-
-│  .-----------------------------.   .-----------------------------.      │
-   | reverse-engineer.md         |   | create-command.md           |
-│  | <<slash-command>>           |   | <<slash-command>>           |      │
-   | 4-phase orchestrator        |   | command scaffolder          |
-│  | model: sonnet               |   | model: claude-sonnet-5      |      │
-   '-----------------------------'   '-----------------------------'
-│          |              |                    |                           │
-           | spawns       | invokes            | calls
-│          |              |                    |                           │
-└ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-            |              |                    |
-     .------+              +---------.          +----------.
-     |                               |                     |
-     v                               v                     v
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐ ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐ ┌ ─ ─ ─ ─ ─ ┐
-  Fact-Gathering Layer              Rendering Layer           Utility Layer
-  (.claude/agents/)                 (.claude/skills/)         (.claude/
-│                               │ │                         │ │ scripts/)  │
-
-  .----------------------.         .----------------------.    .---------.
-│ | .claude/agents/       |       │ | .claude/skills/      | │ |helpers.sh|│
-  | tech-stack.md        |         | c4-documentation/    |   |<<script>>|
-│ | module-map.md        |       │ | 4plus1-documentation/| │ '----------'│
-  | external-integrations|         | project-overview/    |
-│ | data-flows.md        |       │ | <<skill>>            | └ ─ ─ ─ ─ ─ ─ ┘
-  | deployment-infra.md  |         | dual-mode renderers  |
-│ | runtime-process.md   |       │ '----------------------' │
-  | <<agent>>            |
-│ | read-only recon      |       └ ─ ─ ─ ─ ─ ─│─ ─ ─ ─ ─ ─ ┘
-  '----------------------'                      |
-│                               │               | writes to
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘               v
-                                        ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-                                          Runtime Output Layer  (docs/)
-
-                                        │  .-----------------------.        │
-                                           | docs/                  |
-                                        │  | <<package: output>>    |       │
-                                           | c4/, 4plus1/,          |
-                                        │  | overview.md,           |       │
-                                           | COMPARISON.md          |
-                                        │  '-----------------------'        │
-                                        └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  Hooks / Monitoring Layer  (.claude/hooks/ + .claude/logs/)
-
-│  .-------------------------.      .----------------------------.          │
-   | .claude/hooks/           |      | .claude/logs/              |
-│  | log-subagent.sh          |      | subagents.log              |         │
-   | <<hook>>                 |      | subagents-debug.log        |
-│  | SubagentStop listener    |      | <<log>>                    |         │
-   '-------------------------'      '----------------------------'
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  Constraint Layer  (.claude/rules/ + settings.json)
-
-│  .-------------------------.     .------------------------.               │
-   | .claude/rules/           |     | .claude/settings.json  |
-│  | markdown.md              |     | <<config>>             |              │
-   | <<rule>>                 |     | permissions +          |
-│  | **/*.broken_md scope     |     | hook registration      |              │
-   '-------------------------'     '------------------------'
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
 ```
+
+---
+
+## Diagram
+
+```
+┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Output Layer (generated; not source-controlled) ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+  .-------------------------.     .-------------------------.     .-------------------------.
+  | docs/c4/                |     | docs/4plus1/            |     | docs/overview.md        |
+  | <<output>>              |     | <<output>>              |     | <<output>>              |
+  | 4 C4 diagram files      |     | 5 Kruchten 4+1 files    |     | Standalone overview     |
+  '-------------------------'     '-------------------------'     '-------------------------'
+  .------------------------------.
+  | docs/COMPARISON.md           |
+  | <<output>>                   |
+  | C4 vs 4+1 comparison         |
+  '------------------------------'
+└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+                ^ written by skills                      ^ written by orchestrator
+
+┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Feature Layer ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+
+  ┌ ─ ─ ─ Commands ─ ─ ─ ─ ─ ┐  ┌ ─ ─ ─ Skills ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+    .---------------------.         .-------------------------.
+    | .claude/commands/   |         | .claude/skills/         |
+    | <<package>>         |         | c4-documentation/       |
+    |                     |         | <<package>>             |
+    | reverse-engineer.md |         | SKILL.md                |
+    | create-command.md   |         '-------------------------'
+    '---------------------'         .-------------------------.
+                                    | .claude/skills/         |
+                                    | 4plus1-documentation/   |
+                                    | <<package>>             |
+                                    | SKILL.md                |
+                                    '-------------------------'
+                                    .-------------------------.
+                                    | .claude/skills/         |
+                                    | project-overview/       |
+                                    | <<package>>             |
+                                    | SKILL.md                |
+                                    '-------------------------'
+  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+
+  ┌ ─ ─ ─ Agents ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐  ┌ ─ ─ ─ Hooks ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+    .-------------------------.                                  .-------------------------.
+    | .claude/agents/         |                                  | .claude/hooks/          |
+    | <<package>>             |                                  | <<package>>             |
+    |                         |                                  |                         |
+    | tech-stack.md           |                                  | log-subagent.sh         |
+    | module-map.md           |                                  | guard-reverse-          |
+    | external-integrations.md|                                  |   engineer-docs.sh      |
+    | data-flows.md           |                                  | turn-start.sh           |
+    | deployment-infra.md     |                                  | turn-complete.sh        |
+    | runtime-process.md      |                                  '-------------------------'
+    '-------------------------'
+  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+
+  ┌ ─ ─ ─ Rules ─ ─ ─ ─ ─ ─ ─ ┐  ┌ ─ ─ ─ Shared Scripts ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+    .---------------------.          .-------------------------.
+    | .claude/rules/      |          | .claude/scripts/        |
+    | <<package>>         |          | <<lib>>                 |
+    | markdown.md         |          | helpers.sh              |
+    '---------------------'          | (top-level-listing,     |
+                                     |  check-commands)        |
+                                     '-------------------------'
+  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+
+└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+     |           |            |              |              |
+     | depend on the Foundation Layer (all feature layer dirs implicitly read foundation config)
+
+┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Foundation Layer ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
+  .-------------------------.     .-------------------------.     .-------------------------.
+  | CLAUDE.md               |     | .claude/settings.json  |     | overview.md             |
+  | <<context>>             |     | <<config>>             |     | <<guide>>               |
+  | Session context for     |     | Hook registrations,    |     | Human-readable study    |
+  | every turn              |     | bash permissions       |     | guide                   |
+  '-------------------------'     '-------------------------'     '-------------------------'
+└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+```
+
+---
 
 ## Element & Relationship Key
 
-| Element | Layer | Description |
+| Package / Unit | Stereotype | Contents |
 |---|---|---|
-| CLAUDE.md | Root Context | Injected into every Claude Code session; provides project purpose, feature map, layout |
-| `reverse-engineer.md` | Orchestration | Top-level orchestrator; depends on fact-gathering agents and rendering skills |
-| `create-command.md` | Orchestration | Command scaffolder; depends on helpers.sh (utility) and external spec fetch |
-| `.claude/agents/*.md` (6 files) | Fact-Gathering | Read-only discovery modules; no upward dependencies; return summaries to orchestration layer |
-| `.claude/skills/*/SKILL.md` (3 dirs) | Rendering | Documentation renderers; consume fact summaries; write to docs/ |
-| `docs/` | Runtime Output | Final output directory; written by rendering layer; not versioned with code |
-| `helpers.sh` | Utility | Bash helper called inline by commands; no dependencies on other layers |
-| `log-subagent.sh` | Hooks/Monitoring | Bash hook triggered by config layer; writes to logs |
-| `.claude/logs/` | Hooks/Monitoring | Append-only logs: subagents.log (26 entries, 24 "unknown") + subagents-debug.log (effectively empty) |
-| `markdown.md` | Constraint | Path-scoped rule injected automatically by Claude Code on file path match |
-| `settings.json` | Constraint | Permissions whitelist + hook registration; configures utility hook layer |
-| Layer rule | — | No upward dependencies: fact-gathering never calls rendering; rendering never calls agents; utility never calls orchestration |
+| CLAUDE.md | `<<context>>` | Project context injected into every session |
+| settings.json | `<<config>>` | Hook registrations, bash permissions — read by Claude Code at startup |
+| overview.md | `<<guide>>` | Master study guide; not read by Claude Code programmatically |
+| .claude/commands/ | `<<package>>` | `reverse-engineer.md`, `create-command.md` — user-invokable slash commands |
+| .claude/skills/c4-documentation/ | `<<package>>` | `SKILL.md` — skill invoked to render C4 docs |
+| .claude/skills/4plus1-documentation/ | `<<package>>` | `SKILL.md` — skill invoked to render 4+1 docs |
+| .claude/skills/project-overview/ | `<<package>>` | `SKILL.md` — skill invoked to render project overview |
+| .claude/agents/ | `<<package>>` | Six agent definition files — each defines a background sub-agent |
+| .claude/hooks/ | `<<package>>` | Four bash scripts — forked by Claude Code on lifecycle events |
+| .claude/rules/ | `<<package>>` | `markdown.md` — path-scoped behavioral constraint |
+| .claude/scripts/ | `<<lib>>` | `helpers.sh` — shared bash library used by commands and hooks |
+| docs/c4/ | `<<output>>` | Generated C4 diagrams (4 files); not source-controlled by convention |
+| docs/4plus1/ | `<<output>>` | Generated 4+1 views (5 files) |
+| docs/overview.md | `<<output>>` | Generated project overview |
+| docs/COMPARISON.md | `<<output>>` | C4 vs 4+1 comparison written by orchestrator directly |
+
+| Dependency | Direction | Description |
+|---|---|---|
+| commands → foundation | commands depend on | `reverse-engineer.md` reads CLAUDE.md context; `create-command.md` reads settings-permitted helpers.sh |
+| commands → agents | commands spawn | `reverse-engineer.md` spawns all 6 agents in Phase 2 |
+| commands → skills | commands invoke | `reverse-engineer.md` invokes 3 skills in Phase 3 |
+| commands → scripts | commands use | `create-command.md` calls `helpers.sh check-commands`; `reverse-engineer.md` calls `helpers.sh top-level-listing` |
+| hooks → scripts | hooks use | `guard-reverse-engineer-docs.sh` and `log-subagent.sh` use Node.js JSON parsing (bundled in CLI) |
+| hooks → foundation | hooks registered by | `settings.json` registers all 4 hooks |
+| skills → output | skills write | Each skill uses the Write tool to produce files in `docs/` |
+| commands → output | commands write | `reverse-engineer.md` writes `docs/COMPARISON.md` directly |
+
+---
+
+## Notes
+
+- There is **no enforced layering boundary** at the file system level — nothing prevents a skill from importing a hook or a command from bypassing the foundation. Layering is a design convention, not a technical constraint.
+- `docs/` is **committed to the repo** — generated output is source-controlled, unlike `.claude/logs/` which is git-ignored.
+- External dependency: the `create-command` command has a soft runtime dependency on `code.claude.com` (spec fetch); this is not declared in any manifest.

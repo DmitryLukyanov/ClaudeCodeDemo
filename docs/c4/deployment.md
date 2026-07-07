@@ -1,91 +1,120 @@
 # C4 Deployment — ClaudeCodeDemo
 
-This view shows the physical picture: the infrastructure nodes where ClaudeCodeDemo's containers run and the network paths between them. Because this is a developer-local Claude Code repository (not a deployed application), the topology is simple: everything runs on the developer's local workstation except for the Anthropic Claude API and the documentation site, which are remote. There is no cloud infrastructure, CI/CD pipeline, or containerization.
+ClaudeCodeDemo has no cloud infrastructure, no containers, and no CI/CD pipeline. Everything runs on a single developer workstation. The repository is cloned from a remote git host and opened directly in the Claude Code CLI; no build step is required. The only network path at runtime is an outbound HTTPS fetch from `/create-command` to `code.claude.com`.
+
+---
+
+## Legend
+
+```
+People / Actors
+  [ Person Name ]           Human user or role
+
+System / Container / Component boxes
+  +---------------------------+
+  |  Name                     |
+  |  [type: Technology]       |
+  |  Short responsibility      |
+  +---------------------------+
+
+Relationships (inside system boundary)
+  ──────────────────────>   label: protocol or action
+
+Relationships crossing the system boundary
+  ====================>   label: protocol or action
+
+External systems (outside boundary)
+  +===========================+
+  |  Name                     |
+  |  [External System]        |
+  +===========================+
+```
+
+---
 
 ## Diagram
 
 ```
-Legend:
-  [ Person Name ]            Human user or role
-  +---------------------------+
-  |  Name                     |
-  |  [type: Technology]       |
-  +---------------------------+          Container / node box
-  +===========================+
-  |  Name                     |
-  |  [External System]        |
-  +===========================+          External system (outside boundary)
-  ──────────────────────>   label        Relationship (inside boundary)
-  ====================>   label          Relationship crossing boundary
+  [ Developer / Learner ]
+         |
+         | keyboard input
+         v
++===================================================+
+|  Developer Workstation                             |
+|  [Node: Windows 11 Enterprise]                    |
+|                                                    |
+|  +----------------------------------------------+ |
+|  |  Claude Code CLI process                     | |
+|  |  [Runtime: Anthropic CLI + bundled Node.js]  | |
+|  |  Reads config, executes sessions,            | |
+|  |  spawns agents, runs hook scripts            | |
+|  +----------------------------------------------+ |
+|         |                    |                     |
+|  reads / writes (file I/O)  executes (bash fork)  |
+|         |                    |                     |
+|         v                    v                     |
+|  +--------------------+  +---------------------+  |
+|  |  ClaudeCodeDemo    |  |  Hook Scripts       |  |
+|  |  Repository        |  |  [Runtime: Bash +   |  |
+|  |  [Storage: Git     |  |   Node.js JSON]     |  |
+|  |   working tree]    |  |  Short-lived child  |  |
+|  |  .claude/, docs/,  |  |  processes; write   |  |
+|  |  CLAUDE.md,        |  |  to .claude/logs/   |  |
+|  |  overview.md       |  +---------------------+  |
+|  |                    |           |                |
+|  |  .claude/logs/     |<----------+                |
+|  |  (git-ignored,     |   append (bash write)      |
+|  |  runtime state)    |                            |
+|  +--------------------+                            |
++===================================================+
+         |
+         | HTTPS WebFetch (create-command only)
+         v
++===========================+
+|  code.claude.com          |
+|  [External Web Service]   |
+|  Slash-command spec docs  |
++===========================+
 
-
-+-----------------------------------------------------------------------+
-|  Developer's Local Workstation  (Windows 11; also macOS / Linux)      |
-|                                                                       |
-|  +-----------------------------+                                      |
-|  |  Claude Code CLI            |   <- main process                    |
-|  |  [Process: Claude Code]     |                                      |
-|  +-----------------------------+                                      |
-|           |                                                           |
-|           | spawns (on-demand, short-lived)                           |
-|           v                                                           |
-|  +-----------------------------+                                      |
-|  |  Subagent Processes (x6)    |   <- during /reverse-engineer        |
-|  |  [Process: Claude Code]     |     Phase 2 only                     |
-|  +-----------------------------+                                      |
-|           |                                                           |
-|           | triggers (SubagentStop lifecycle event)                   |
-|           v                                                           |
-|  +-----------------------------+                                      |
-|  |  log-subagent.sh            |   <- transient bash fork             |
-|  |  [Script: Bash]             |                                      |
-|  +-----------------------------+                                      |
-|           |  appends                    |  appends (on failure)       |
-|           v                             v                             |
-|  +--------------------+    +------------------------+                |
-|  |  subagents.log     |    |  subagents-debug.log   |                |
-|  |  [File: Log]       |    |  [File: Log]           |                |
-|  |  .claude/logs/     |    |  .claude/logs/         |                |
-|  +--------------------+    +------------------------+                |
-|                                                                       |
-|  +-----------------------------+                                      |
-|  |  helpers.sh                 |   <- transient bash fork             |
-|  |  [Script: Bash]             |     (inline from commands)           |
-|  +-----------------------------+                                      |
-|                                                                       |
-|  (Optional -- not currently active)                                   |
-|  +-------------------------+  +----------------------------+          |
-|  |  superpowers MCP Server  |  |  Playwright MCP Server    |          |
-|  |  [Process: Node.js]      |  |  [Process: Node.js]       |          |
-|  |  npm install -g required |  |  user-level config        |          |
-|  +-------------------------+  +----------------------------+          |
-|                                (.playwright-mcp dir present)          |
-|                                                                       |
-+-----------------------------------------------------------------------+
-         |                                    |
-         | all LLM inference (HTTPS)          | spec fetch (HTTPS, on-demand)
-         v                                    v
-+====================+           +============================+
-|  Anthropic         |           |  code.claude.com           |
-|  Claude API        |           |  [External: Web Service]   |
-|  [External: API]   |           +============================+
-+====================+
+         ^
+         |  git clone / git push (SSH)
+         |
++===========================+
+|  Remote Git Host          |
+|  [External: GitHub-style] |
+|  github-bet4u:            |
+|  DmitryLukyanov/          |
+|  ClaudeCodeDemo.git       |
++===========================+
 ```
+
+---
 
 ## Element & Relationship Key
 
 | Element | Type | Description |
 |---|---|---|
-| Developer's Local Workstation | Node | Physical or virtual machine; Windows 11 in this repo's context; also works on macOS/Linux |
-| Claude Code CLI | Container on Workstation | Main interactive process; long-lived for the session duration |
-| Subagent Processes (x6) | Container on Workstation | Short-lived child processes, present only during `/reverse-engineer` Phase 2 |
-| log-subagent.sh | Container on Workstation | Transient bash process forked on each SubagentStop event; exits after writing one log line |
-| subagents.log | Container on Workstation | Append-only file at `.claude/logs/subagents.log`; 26 entries recorded |
-| subagents-debug.log | Container on Workstation | Fallback log at `.claude/logs/subagents-debug.log`; written on agent_type parse failure; effectively empty |
-| helpers.sh | Container on Workstation | Transient bash process forked inline by slash commands; exits after returning output |
-| superpowers MCP Server | Container on Workstation (optional) | Node.js process; provides cross-session memory; install with `npm install -g @obra/superpowers`; not currently configured |
-| Playwright MCP Server | Container on Workstation (optional) | Node.js process; `.playwright-mcp` directory present at repo root from user-level config; not in project `settings.json` |
-| Anthropic Claude API | External System (remote) | Hosted inference API; all LLM calls cross the network over HTTPS |
-| code.claude.com | External System (remote) | Claude Code documentation site; accessed over HTTPS only when `/create-command` runs |
-| Workstation → Anthropic Claude API | Network path | HTTPS; all reasoning and generation during every session |
-| Workstation → code.claude.com | Network path | HTTPS; on-demand spec fetch only |
+| Developer Workstation | Infrastructure Node | Windows 11 Enterprise; the sole execution environment for all runtime activity |
+| Claude Code CLI process | Runtime | Anthropic's CLI with bundled Node.js; reads config, runs Claude sessions, spawns agents, invokes hooks |
+| ClaudeCodeDemo Repository | Storage | Git working tree on local disk: all source-controlled config files and generated docs |
+| Hook Scripts | Runtime | Short-lived bash child processes forked by the Claude Code harness on lifecycle events; write to `.claude/logs/` |
+| code.claude.com | External Web Service | Public docs site; accessed via HTTPS WebFetch only during `/create-command` runs |
+| Remote Git Host | External Version Control | SSH-accessible git remote (`git@github-bet4u:DmitryLukyanov/ClaudeCodeDemo.git`); source of truth for the repo |
+
+| Relationship | Protocol / Action |
+|---|---|
+| Developer → Claude Code CLI | Keyboard input: slash commands and natural-language prompts |
+| Claude Code CLI → ClaudeCodeDemo Repository | File I/O: reads CLAUDE.md, settings.json, commands, skills, agents at session start and on demand; writes docs/ via skill Write calls |
+| Claude Code CLI → Hook Scripts | Bash fork: spawns hook scripts on lifecycle events (UserPromptSubmit, Stop, SubagentStop, PreToolUse) |
+| Hook Scripts → ClaudeCodeDemo Repository (.claude/logs/) | Bash write: appends structured lines to log files |
+| ClaudeCodeDemo Repository → code.claude.com | HTTPS WebFetch: `/create-command` fetches current slash-command spec |
+| Developer ↔ Remote Git Host | SSH git clone (initial setup) and git push (committing changes) |
+
+---
+
+## Notes
+
+- There is **no staging or production environment** — the repository and its demo workflows run entirely on the developer's local machine.
+- There are **no containers** (no Docker, no Kubernetes). The only "process" isolation is the Claude Code CLI forking short-lived bash child processes for hooks.
+- **`.claude/logs/` is git-ignored** — all runtime state (tracker, timing logs, subagent audit log) is local and ephemeral; it does not travel with the repo.
+- The remote git host URL (`github-bet4u`) suggests a non-standard GitHub hostname alias; the actual remote is SSH-based.

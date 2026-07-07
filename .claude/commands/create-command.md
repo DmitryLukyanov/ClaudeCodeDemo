@@ -1,6 +1,6 @@
 ---
 allowed-tools: WebFetch, Write, Read, Bash, Glob
-argument-hint: <command-name> <description> [allowed-tools] [prompt-body]
+argument-hint: "<command-name> <description> [allowed-tools] [prompt-body]"
 description: Scaffold a new slash command file in .claude/commands/ from arguments
 model: claude-sonnet-5
 ---

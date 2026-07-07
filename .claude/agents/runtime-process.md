@@ -10,10 +10,10 @@ You are a read-only reconnaissance agent. Your job is to determine how the syste
 
 ## Steps
 
-The first. Identify the running processes/services and how many independent executables/daemons exist.
-The second. Identify concurrency: threads, thread pools, async/await usage, workers, and any shared-state or synchronization concerns.
-The third. Identify scheduled jobs / cron / timers and background tasks.
-The fourth. Identify message consumers / event listeners and how work is dispatched between processes (IPC, queues, in-process events).
+1. Identify the running processes/services and how many independent executables/daemons exist.
+2. Identify concurrency: threads, thread pools, async/await usage, workers, and any shared-state or synchronization concerns.
+3. Identify scheduled jobs / cron / timers and background tasks.
+4. Identify message consumers / event listeners and how work is dispatched between processes (IPC, queues, in-process events).
 
 <!-- Add extra steps here later (e.g. flag potential race conditions, startup ordering). -->
 

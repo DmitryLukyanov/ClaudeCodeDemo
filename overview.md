@@ -104,16 +104,19 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 
 **When to use it:** When side effects must happen unconditionally: audit logging, auto-formatting after a write, blocking a dangerous command before it runs, or recording facts you don't want to depend on Claude self-reporting.
 
-**Real-life scenario:** You run the `/reverse-engineer` capstone (§9) and want deterministic proof that all six fact-gathering sub-agents actually ran — not just Claude's word for it. A `SubagentStop` hook appends each finishing agent's `agent_type` to a log at the harness level, giving you an independent audit trail.
+**Real-life scenario:** You run the `/reverse-engineer` capstone (§9) and want deterministic proof that all six fact-gathering sub-agents actually ran — not just Claude's word for it. This repo wires up four hooks around that one workflow: a `SubagentStop` hook that logs each finishing agent, a `PreToolUse` guard that escalates to you if a doc gets written before all six completed (catching the exact "skipped Phase 2, wrote stale docs" failure mode observed in practice), and a `UserPromptSubmit`/`Stop` pair that records how long each turn actually took — useful since a full run takes 10–15 minutes unattended.
 
 **Files involved:**
-- `.claude/settings.json` — registers the `SubagentStop` hook (matched to the six reverse-engineer agents), referencing the script via `${CLAUDE_PROJECT_DIR}`
-- `.claude/hooks/log-subagent.sh` — the script the hook runs; appends `{timestamp, agent_type}` to `.claude/logs/subagents.log`
+- `.claude/settings.json` — registers all four hooks, each referencing its script via `${CLAUDE_PROJECT_DIR}`
+- `.claude/hooks/log-subagent.sh` — `SubagentStop`; appends `{timestamp, agent_type}` to `.claude/logs/subagents.log` and, for the six reverse-engineer agents, also marks them complete in `.claude/logs/reverse-engineer-run.tracker`
+- `.claude/hooks/guard-reverse-engineer-docs.sh` — `PreToolUse` (`Write|Edit`); before a write to `docs/c4/**`, `docs/4plus1/**`, `docs/overview.md`, or `docs/COMPARISON.md`, checks the tracker and asks for permission if any of the six agents are missing
+- `.claude/hooks/turn-start.sh` / `.claude/hooks/turn-complete.sh` — `UserPromptSubmit` / `Stop`; together append `{timestamp, duration, prompt}` to `.claude/logs/turn-completions.log` for every turn
 
 **How to run:**
 1. Open the repo in Claude Code (hooks load from `.claude/settings.json` automatically).
-2. Run `/reverse-engineer .` so the six sub-agents fire.
-3. Open `.claude/logs/subagents.log` — it lists each agent with a timestamp, confirming all six ran.
+2. Run `/reverse-engineer .` so the six sub-agents fire and the tracker fills up cleanly.
+3. Open `.claude/logs/subagents.log` and `.claude/logs/turn-completions.log` — the first lists each agent with a timestamp, the second shows the run's total duration.
+4. To see the guard fire, manually truncate `.claude/logs/reverse-engineer-run.tracker` and ask Claude to write directly to `docs/overview.md` — expect a permission prompt naming the six missing agents.
 
 ---
 
@@ -125,7 +128,7 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 
 **Real-life scenario:** Your team tracks work in Jira. You register the Atlassian MCP server. Claude can now fetch a ticket's description and acceptance criteria, then generate implementation code — without you copying anything from Jira.
 
-**Status in this repo:** No MCP server is registered yet — `.claude/settings.json` currently defines only the hook from §6. The steps below show how to add one; the server name and launch command depend on the specific MCP server you choose.
+**Status in this repo:** No MCP server is registered yet — `.claude/settings.json` currently defines only the hooks from §6. The steps below show how to add one; the server name and launch command depend on the specific MCP server you choose.
 
 **Files involved:**
 - `.claude/settings.json` — where the `mcpServers` block goes (not present until you add it)
@@ -181,20 +184,20 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 
 ## 9. Reverse-Engineering a Codebase (capstone: command + sub-agents + skills + hook)
 
-**What it is:** A single slash command, `/reverse-engineer`, that orchestrates the other features end-to-end. It gathers facts about an unfamiliar codebase once (via six parallel sub-agents), then renders them through three documentation skills into two architecture notations (C4 and Kruchten 4+1) plus a standalone overview — so both notations describe the *same* facts and can be compared. A SubagentStop hook logs which agents ran.
+**What it is:** A single slash command, `/reverse-engineer`, that orchestrates the other features end-to-end. It gathers facts about an unfamiliar codebase once (via six parallel sub-agents), then renders them through three documentation skills into two architecture notations (C4 and Kruchten 4+1) plus a standalone overview — so both notations describe the *same* facts and can be compared. Four hooks (§6) back this up: one logs which agents ran, one blocks a stale/incomplete doc write, two record how long the whole run took.
 
 **When to use it:** When you inherit a legacy or undocumented system and need architecture docs fast, or when you want to compare how C4 vs 4+1 describe the same system.
 
 **Real-life scenario:** You take over a legacy service with no docs. You run one command and get `docs/c4/`, `docs/4plus1/`, an `overview.md`, and a `COMPARISON.md` — enough to onboard and to decide which diagram style your team should standardize on.
 
 **Files involved:**
-- `.claude/commands/reverse-engineer.md` — the orchestrator (4 phases)
+- `.claude/commands/reverse-engineer.md` — the orchestrator (4 phases, resets the agent-completeness tracker at the start of Phase 1)
 - `.claude/agents/{tech-stack,module-map,external-integrations,data-flows,deployment-infra,runtime-process}.md` — six read-only fact-gathering sub-agents (`background: true`, haiku/sonnet tiers)
 - `.claude/skills/{c4-documentation,4plus1-documentation,project-overview}/SKILL.md` — the three rendering skills
-- `.claude/settings.json` + `.claude/hooks/log-subagent.sh` — SubagentStop hook that records which agents fired to `.claude/logs/subagents.log`
+- `.claude/settings.json` + `.claude/hooks/*.sh` — the four hooks described in §6
 
 **How to run:**
 1. Open the repo (or any target project) in Claude Code.
 2. Type: `/reverse-engineer .`
 3. Watch the six agents run in parallel, then the three skills render docs.
-4. Review the eleven files under `docs/`, and `.claude/logs/subagents.log` to confirm all six agents ran.
+4. Review the eleven files under `docs/`, `.claude/logs/subagents.log` to confirm all six agents ran, and `.claude/logs/turn-completions.log` for the total run time.

@@ -1,116 +1,149 @@
 # 4+1 Process View — ClaudeCodeDemo
 
-The process view shows the runtime concurrency picture: which processes exist during a `/reverse-engineer` invocation, how they are spawned, how they communicate, and where the synchronization points are. This is the view where C4 container diagrams fall short for this system — the parallel fan-out of six independent subagent processes, the async hook sidechannel, and the sequential Phase 3 serialization are all invisible in static structural diagrams. This view is for developers reasoning about ordering guarantees, context isolation, and potential race conditions.
+The process view shows what actually runs at runtime during a Claude Code session. There is no server or daemon — the Claude Code CLI is the sole persistent process. All other runtime activity happens in short-lived child processes: four hook scripts forked by the harness on lifecycle events, and up to six Claude inference sub-agents running concurrently when `/reverse-engineer` is active. This view is where the concurrency of Phase 2 and the ordering enforcement of the tracker gate are most clearly expressed.
 
-## Diagram
+---
+
+## Legend
 
 ```
-Legend:
+Actors / External Agents
   (( Actor Name ))              human user, external system, or timer
 
+Component / Object / Subsystem
   .-----------------------.
   | Name                  |
   | <<stereotype>>        |    stereotype: service, module, subsystem, controller, etc.
   '-----------------------'
 
-  Infrastructure Node  (Physical view only)
+Infrastructure Node  (Physical view only)
   [[ Node Name                ]]
 
-  Relationships
+Relationships
   ─────────────────>   label          synchronous call / association
   - - - - - - - - ->   label          dependency / uses / sends-to (async)
   ════════════════>   label          IPC / queue message / event
+```
 
+---
 
+## Diagram
+
+```
 (( Developer ))
       |
-      | /reverse-engineer (invocation)
+      | types prompt / slash command
       v
-.---------------------------------.
-| Claude Code CLI                 |
-| <<process: Claude Code>>        |   long-lived; one per session
-'---------------------------------'
+.-----------------------------------------.
+| Claude Code CLI                          |
+| <<process: persistent>>                  |
+| Single long-running process per session; |
+| reads config, executes Claude turns,     |
+| dispatches lifecycle events to hooks     |
+'-----------------------------------------'
       |
-      | PHASE 1: self-runs inventory (Read/Glob inline; no subagents)
+      |──── on every UserPromptSubmit ────────────────────────────────>
+      |                                                                 |
+      |                                                        .------------------------.
+      |                                                        | turn-start.sh          |
+      |                                                        | <<process: bash, 1s>>  |
+      |                                                        | Writes epoch +         |
+      |                                                        | prompt to .turn-start  |
+      |                                                        '------------------------'
       |
-      | PHASE 2: spawns 6 concurrently (background: true)
-      |          all six start at the same time
+      |──── on every Stop ────────────────────────────────────────────>
+      |                                                                 |
+      |                                                        .------------------------.
+      |                                                        | turn-complete.sh       |
+      |                                                        | <<process: bash, 1s>>  |
+      |                                                        | Reads .turn-start;     |
+      |                                                        | appends TSV row to     |
+      |                                                        | turn-completions.log   |
+      |                                                        '------------------------'
       |
-      +------+------+------+------+------+------+
-      |      |      |      |      |      |      |
-      v      v      v      v      v      v      |
-.--------. .--------. .--------. .--------. .--------. .--------.
-|tech-   | |module- | |ext-    | |data-   | |deploy- | |runtime |
-|stack   | |map     | |integr. | |flows   | |infra   | |process |
-|<<proc: | |<<proc: | |<<proc: | |<<proc: | |<<proc: | |<<proc: |
-| haiku>>| | sonnet>| | haiku>>| | sonnet>| | haiku>>| | sonnet>|
-'--------' '--------' '--------' '--------' '--------' '--------'
-      |      |      |      |      |      |
-      | each returns compact structured summary
-      +------+------+------+------+------+
+      |──── on Write/Edit to docs/** (PreToolUse) ───────────────────>
+      |                                                                |
+      |                                                       .-------------------------.
+      |                                                       | guard-reverse-          |
+      |                                                       | engineer-docs.sh        |
+      |                                                       | <<process: bash, <1s>>  |
+      |                                                       | Reads tracker; if any   |
+      |                                                       | of the 6 agents absent, |
+      |                                                       | returns                 |
+      |                                                       | permissionDecision:ask  |
+      |                                                       '-------------------------'
       |
-      | [SYNC POINT: all 6 must complete before Phase 3]
+      |──── /reverse-engineer Phase 2: spawns 6 agents concurrently ─>
       |
-      | PHASE 3: sequential (one skill at a time)
+      |   .--------------------.  .--------------------.  .--------------------.
+      |   | tech-stack agent   |  | module-map agent   |  | external-integr.   |
+      |   | <<agent: haiku>>   |  | <<agent: sonnet>>  |  | <<agent: haiku>>   |
+      |   | Read-only scan     |  | Read-only scan     |  | Read-only scan     |
+      |   | background:true    |  | background:true    |  | background:true    |
+      |   '--------------------'  '--------------------'  '--------------------'
+      |         |                       |                        |
+      |   .--------------------.  .--------------------.  .--------------------.
+      |   | data-flows agent   |  | deployment-infra   |  | runtime-process    |
+      |   | <<agent: sonnet>>  |  | <<agent: haiku>>   |  | <<agent: sonnet>>  |
+      |   | Read-only scan     |  | Read-only scan     |  | Read-only scan     |
+      |   | background:true    |  | background:true    |  | background:true    |
+      |   '--------------------'  '--------------------'  '--------------------'
+      |         |                       |                        |
+      |         | (each on SubagentStop)
+      |         v
+      |   .------------------------.
+      |   | log-subagent.sh        |
+      |   | <<process: bash, <1s>> |
+      |   | Fired per completing   |
+      |   | agent; appends name    |
+      |   | to tracker +           |
+      |   | subagents.log          |
+      |   '------------------------'
       |
-      | Step A              Step B               Step C
-      v                     v                    v
-.-------------.    .----------------.    .-----------------.
-| c4-doc      |    | 4plus1-doc     |    | project-overview|
-| (in-proc)   |    | (in-proc)      |    | (in-proc)       |
-| <<skill>>   |    | <<skill>>      |    | <<skill>>       |
-'-------------'    '----------------'    '-----------------'
-      |                  |                      |
-      | writes           | writes               | writes
-      v                  v                      v
-   docs/c4/          docs/4plus1/         docs/overview.md
-
---- Async sidecar (does NOT block Phase 3) ---
-
-Each subagent completion ════> SubagentStop lifecycle event
-                                      |
-                                      v
-                               .-----------------.
-                               | log-subagent.sh  |
-                               | <<process: Bash>>|
-                               | transient; one   |
-                               | fork per event   |
-                               '-----------------'
-                                    |         |
-                             appends|         | appends (on parse failure)
-                                    v         v
-                             subagents.log  subagents-debug.log
-                             (26 entries;   (exists; effectively
-                             24 "unknown"   empty — branch not
-                             — known bug)   triggering as expected)
-
---- Commands also fork helpers.sh ---
-
-reverse-engineer ──────> helpers.sh (top-level-listing)   [Phase 1]
-create-command   ──────> helpers.sh (check-commands)      [on invocation]
+      |──── /reverse-engineer Phase 3: skills run sequentially ──────>
+      |
+      |   .--------------------.   (then)   .--------------------.
+      |   | c4-documentation   |            | 4plus1-            |
+      |   | <<skill: inline>>  |            | documentation      |
+      |   | Writes docs/c4/    |            | <<skill: inline>>  |
+      |   | (4 files)          |            | Writes docs/4plus1/|
+      |   '--------------------'            | (5 files)          |
+      |                                     '--------------------'
+      |                         (then)
+      |   .--------------------.
+      |   | project-overview   |
+      |   | <<skill: inline>>  |
+      |   | Writes             |
+      |   | docs/overview.md   |
+      |   '--------------------'
+      |
+      |   Each skill Write triggers guard-reverse-engineer-docs.sh (see above)
 ```
+
+---
 
 ## Element & Relationship Key
 
-| Element | Description |
+| Process | Type | Lifetime | Description |
+|---|---|---|---|
+| Claude Code CLI | `<<process: persistent>>` | Entire session | Reads config, executes Claude turns, dispatches lifecycle events to hook scripts |
+| turn-start.sh | `<<process: bash>>` | ~1 second | Forked on UserPromptSubmit; writes epoch + prompt to `.turn-start`; exits |
+| turn-complete.sh | `<<process: bash>>` | ~1 second | Forked on Stop; reads `.turn-start`, computes elapsed, appends to `turn-completions.log`; exits |
+| guard-reverse-engineer-docs.sh | `<<process: bash>>` | < 1 second | Forked on PreToolUse (Write/Edit) targeting `docs/`; reads tracker; returns `permissionDecision:ask` if any agent missing; exits |
+| log-subagent.sh | `<<process: bash>>` | < 1 second | Forked on SubagentStop for the 6 named agent types; appends agent name to tracker + `subagents.log`; exits |
+| tech-stack agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns language/framework summary |
+| module-map agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns component structure summary |
+| external-integrations agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns external dependency summary |
+| data-flows agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns end-to-end flow summary |
+| deployment-infra agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns infra/deployment summary |
+| runtime-process agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns process/concurrency summary |
+| c4-documentation skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes 4 Markdown files to `docs/c4/` |
+| 4plus1-documentation skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes 5 Markdown files to `docs/4plus1/` |
+| project-overview skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes `docs/overview.md` |
+
+| Concurrency Notes | |
 |---|---|
-| Claude Code CLI `<<process>>` | Main interactive process; orchestrates all phases; long-lived for the session |
-| tech-stack `<<process: haiku>>` | Background child process; haiku model; read-only recon; isolated context window |
-| module-map `<<process: sonnet>>` | Background child process; sonnet model; deeper analysis; isolated context |
-| external-integrations `<<process: haiku>>` | Background child process; haiku model; isolated context |
-| data-flows `<<process: sonnet>>` | Background child process; sonnet model; isolated context |
-| deployment-infra `<<process: haiku>>` | Background child process; haiku model; isolated context |
-| runtime-process `<<process: sonnet>>` | Background child process; sonnet model; isolated context |
-| c4-documentation (in-proc) | Skill executing in the main CLI process context; not a separate process |
-| 4plus1-documentation (in-proc) | Skill executing in the main CLI process context |
-| project-overview (in-proc) | Skill executing in the main CLI process context |
-| log-subagent.sh `<<process: Bash>>` | Transient bash child forked per SubagentStop event; exits after one log write |
-| helpers.sh `<<process: Bash>>` | Transient bash child forked inline; exits after returning output |
-| subagents.log | Append-only file; 26 entries total; 24 show "unknown" agent_type (hook grep pattern mismatch — known bug) |
-| subagents-debug.log | Fallback file for parse failures; exists but effectively empty (branch not triggering as expected) |
-| Phase 2 fan-out | All 6 subagent processes start simultaneously; isolated context windows; no shared memory |
-| Sync point (Phase 2→3) | Agent tool semantics ensure all 6 return before Phase 3; enforced by runtime |
-| Phase 3 sequential | Skills run one at a time (A then B then C) to prevent write conflicts on docs/ |
-| SubagentStop → log-subagent.sh | Async sidecar; fires after each agent; does not block Phase 3 |
-| No scheduled jobs | No cron, no timers, no background polling |
-| No message queues | All communication is direct process invocation or filesystem write |
+| Phase 2 parallelism | All 6 agents run simultaneously (`background:true`); orchestrator waits for all before Phase 3 |
+| Hook parallelism | Multiple SubagentStop hooks may fire concurrently as agents complete; appends to tracker are not locked (low risk for small writes) |
+| Skills are serial | Phases 3 skills run sequentially in the orchestrator's single Claude context |
+| No scheduled jobs | There are no cron entries or recurring background tasks |

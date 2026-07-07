@@ -1,60 +1,80 @@
-# C4 L1 — System Context: ClaudeCodeDemo
+# C4 Level 1 — System Context: ClaudeCodeDemo
 
-This view shows ClaudeCodeDemo as a single black box, the one human actor who interacts with it, and the external systems it connects to. ClaudeCodeDemo is a Claude Code configuration repository — not a deployed service — so the "system" is the Claude Code platform configured with the files in this repo. The developer is the only human actor; there are no end users, admins, or operators.
+ClaudeCodeDemo is a documentation repository that configures and demonstrates Claude Code features. At the system level, a developer opens the repo in the Claude Code CLI; Claude Code reads the project configuration and executes interactive workflows (slash commands, skills, agents, hooks). The only external system actively used at runtime is the Claude Code CLI itself; the Anthropic Claude API is consumed implicitly through it. The `create-command` workflow makes an outbound web fetch to `code.claude.com` to retrieve the latest slash-command specification.
+
+---
+
+## Legend
+
+```
+People / Actors
+  [ Person Name ]           Human user or role
+
+System / Container / Component boxes
+  +---------------------------+
+  |  Name                     |
+  |  [type: Technology]       |
+  |  Short responsibility      |
+  +---------------------------+
+
+Relationships (inside system boundary)
+  ──────────────────────>   label: protocol or action
+
+Relationships crossing the system boundary
+  ====================>   label: protocol or action
+
+External systems (outside boundary)
+  +===========================+
+  |  Name                     |
+  |  [External System]        |
+  +===========================+
+```
+
+---
 
 ## Diagram
 
 ```
-Legend:
-  [ Person Name ]            Human user or role
-  +---------------------------+
-  |  Name                     |
-  |  [type: Technology]       |
-  +---------------------------+          Container / node box
-  +===========================+
-  |  Name                     |
-  |  [External System]        |
-  +===========================+          External system (outside boundary)
-  ──────────────────────>   label        Relationship (inside boundary)
-  ====================>   label          Relationship crossing boundary
-
-
-                    [ Developer ]
-                          |
-                          | opens repo, invokes slash commands,
-                          | views generated docs
-                          v
-          +------------------------------------------+
-          |  ClaudeCodeDemo                          |
-          |  [System: Claude Code configuration]     |
-          +------------------------------------------+
-                  |                      |
-                  | all LLM inference    | spec fetch
-                  | (HTTPS)             | (HTTPS, on-demand)
-                  v                      v
-     +====================+    +============================+
-     |  Anthropic         |    |  code.claude.com           |
-     |  Claude API        |    |  [External: Web Service]   |
-     |  [External: API]   |    +============================+
-     +====================+
-
-     (Optional — not currently active)
-     +====================+    +============================+
-     |  superpowers MCP   |    |  Playwright MCP            |
-     |  [External: npm]   |    |  [External: User-level]    |
-     +====================+    +============================+
+  [ Developer / Learner ]
+         |
+         |  opens repo, types commands
+         v
++--------------------------------------------+
+|                                            |
+|  ClaudeCodeDemo                            |
+|  [System]                                  |
+|                                            |
+|  Hands-on study guide that configures      |
+|  Claude Code via CLAUDE.md, commands,      |
+|  skills, agents, hooks, and rules.         |
+|                                            |
++--------------------------------------------+
+         |                        |
+         | uses (Claude Code API) | fetches spec (HTTPS / WebFetch)
+         v                        v
++====================+   +==========================+
+|  Claude Code CLI   |   |  code.claude.com         |
+|  [External Tool:   |   |  [External Web Service]  |
+|   Anthropic]       |   |                          |
+|  Executes Claude   |   |  Slash-command spec page |
+|  sessions, runs    |   |  used by /create-command |
+|  hooks & agents    |   +==========================+
++====================+
 ```
+
+---
 
 ## Element & Relationship Key
 
 | Element | Type | Description |
 |---|---|---|
-| Developer | Person | The human who clones this repo, opens it in Claude Code, and invokes commands and skills |
-| ClaudeCodeDemo | System | The Claude Code platform as configured by this repository's `.claude/` directory; not a deployed service |
-| Anthropic Claude API | External System | Hosted LLM inference; all Claude Code CLI and subagent processes communicate with it over HTTPS during every session |
-| code.claude.com | External System | Claude Code documentation site; fetched over HTTPS by `/create-command` to get the current slash-command spec |
-| superpowers MCP | External System (optional) | Open-source MCP framework (`@obra/superpowers`); provides cross-session memory; not currently registered in `.claude/settings.json` |
-| Playwright MCP | External System (optional) | Browser automation MCP; `.playwright-mcp` directory present at repo root from user-level config; not in project `settings.json` |
-| Developer → ClaudeCodeDemo | Relationship | Opens the repo in Claude Code, invokes slash commands (`/reverse-engineer`, `/create-command`), views output docs |
-| ClaudeCodeDemo → Anthropic Claude API | Relationship | All LLM inference, HTTPS; fires on every turn including agent and skill invocations |
-| ClaudeCodeDemo → code.claude.com | Relationship | Spec fetch, HTTPS; fires only when `/create-command` is invoked |
+| Developer / Learner | Person | A developer learning Claude Code features, or a practitioner running the demos interactively |
+| ClaudeCodeDemo | System | The git repository: configuration files, commands, skills, agents, hooks, and study-guide documentation |
+| Claude Code CLI | External Tool | Anthropic's CLI that reads `.claude/` configuration and executes Claude sessions, sub-agents, and hooks |
+| code.claude.com | External Web Service | Public documentation site; fetched by `/create-command` to get the current slash-command frontmatter spec |
+
+| Relationship | Protocol / Action |
+|---|---|
+| Developer → ClaudeCodeDemo | Opens repo in Claude Code, types slash commands and prompts |
+| ClaudeCodeDemo → Claude Code CLI | Supplies configuration (CLAUDE.md, settings.json, commands, skills, agents, hooks) that Claude Code consumes and executes |
+| ClaudeCodeDemo → code.claude.com | HTTPS WebFetch from the `/create-command` slash command to retrieve the latest spec |

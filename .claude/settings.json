@@ -13,6 +13,28 @@
           { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/log-subagent.sh\"", "shell": "bash" }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/guard-reverse-engineer-docs.sh\"", "shell": "bash" }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-start.sh\"", "shell": "bash" }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"${CLAUDE_PROJECT_DIR}/.claude/hooks/turn-complete.sh\"", "shell": "bash" }
+        ]
+      }
     ]
   }
 }
