@@ -1,10 +1,12 @@
-# C4 Level 1 — System Context: ClaudeCodeDemo
+# C4 — L1 System Context
 
-ClaudeCodeDemo is a documentation repository that configures and demonstrates Claude Code features. At the system level, a developer opens the repo in the Claude Code CLI; Claude Code reads the project configuration and executes interactive workflows (slash commands, skills, agents, hooks). The only external system actively used at runtime is the Claude Code CLI itself; the Anthropic Claude API is consumed implicitly through it. The `create-command` workflow makes an outbound web fetch to `code.claude.com` to retrieve the latest slash-command specification.
-
----
-
-## Legend
+This is the highest-altitude view of **ClaudeCodeDemo**, a self-referential Claude Code
+feature-demonstration repository. Its "system" is a documentation/automation toolkit built
+entirely from Claude Code configuration artifacts (commands, skills, agents, hooks, rules)
+plus one Python Agent SDK driver. It has no traditional application code, database, or queue.
+The system reads a target codebase and renders architecture documentation from it; its only
+outbound dependency is the Anthropic API (reached through the Claude Agent SDK / Claude Code
+runtime). Actors drive it either interactively or headlessly.
 
 ```
 People / Actors
@@ -13,8 +15,8 @@ People / Actors
 System / Container / Component boxes
   +---------------------------+
   |  Name                     |
-  |  [type: Technology]       |
-  |  Short responsibility      |
+  |  [type: Technology]       |   ← technology tag only at L2+
+  |  Short responsibility      |   ← responsibility line only at L3
   +---------------------------+
 
 Relationships (inside system boundary)
@@ -30,51 +32,40 @@ External systems (outside boundary)
   +===========================+
 ```
 
----
-
-## Diagram
-
 ```
-  [ Developer / Learner ]
-         |
-         |  opens repo, types commands
-         v
-+--------------------------------------------+
-|                                            |
-|  ClaudeCodeDemo                            |
-|  [System]                                  |
-|                                            |
-|  Hands-on study guide that configures      |
-|  Claude Code via CLAUDE.md, commands,      |
-|  skills, agents, hooks, and rules.         |
-|                                            |
-+--------------------------------------------+
-         |                        |
-         | uses (Claude Code API) | fetches spec (HTTPS / WebFetch)
-         v                        v
-+====================+   +==========================+
-|  Claude Code CLI   |   |  code.claude.com         |
-|  [External Tool:   |   |  [External Web Service]  |
-|   Anthropic]       |   |                          |
-|  Executes Claude   |   |  Slash-command spec page |
-|  sessions, runs    |   |  used by /create-command |
-|  hooks & agents    |   +==========================+
-+====================+
-```
+[ Developer / User ]                       [ CI / Automation Caller ]
 
----
+     | uses (slash commands in Claude Code)      | runs (python CLI, headless)
+     v                                           v
++----------------------------------------------------------------+
+|  ClaudeCodeDemo                                                 |
+|  [System: Claude Code config toolkit + Python Agent SDK driver] |
++----------------------------------------------------------------+
+     |                         |                          |
+     | agent loop + inference  | loads workflow skills    | (documented, not
+     | (HTTPS via Agent SDK)   | (plugin registry)        |  configured)
+     v                         v                          v
++==================+   +=========================+   +==================+
+|  Anthropic API   |   |  superpowers plugin     |   |  MCP Servers     |
+|  [External SaaS] |   |  [External Plugin]      |   |  [External: none]|
++==================+   +=========================+   +==================+
+```
 
 ## Element & Relationship Key
 
-| Element | Type | Description |
-|---|---|---|
-| Developer / Learner | Person | A developer learning Claude Code features, or a practitioner running the demos interactively |
-| ClaudeCodeDemo | System | The git repository: configuration files, commands, skills, agents, hooks, and study-guide documentation |
-| Claude Code CLI | External Tool | Anthropic's CLI that reads `.claude/` configuration and executes Claude sessions, sub-agents, and hooks |
-| code.claude.com | External Web Service | Public documentation site; fetched by `/create-command` to get the current slash-command frontmatter spec |
-
-| Relationship | Protocol / Action |
+| Element | Description |
 |---|---|
-| Developer → ClaudeCodeDemo | Opens repo in Claude Code, types slash commands and prompts |
-| ClaudeCodeDemo → Claude Code CLI | Supplies configuration (CLAUDE.md, settings.json, commands, skills, agents, hooks) that Claude Code consumes and executes |
-| ClaudeCodeDemo → code.claude.com | HTTPS WebFetch from the `/create-command` slash command to retrieve the latest spec |
+| `[ Developer / User ]` | Human who opens the repo in Claude Code (`claude .`) and types slash commands such as `/reverse-engineer .` or `/create-command`. |
+| `[ CI / Automation Caller ]` | Non-interactive caller that runs `python scripts/run-reverse-engineer.py [path]` headlessly (CI, nightly jobs, cost-gated automation). |
+| `ClaudeCodeDemo` | The system itself: a Claude Code configuration toolkit (commands, skills, agents, hooks, rules) plus a Python Agent SDK driver that reverse-engineers a target codebase into architecture docs. |
+| `Anthropic API` | External SaaS providing Claude model inference; reached via the Claude Agent SDK / Claude Code runtime. Auth via `ANTHROPIC_API_KEY` or `claude auth`. |
+| `superpowers plugin` | External Claude Code plugin (`superpowers@claude-plugins-official`) enabled in `.claude/settings.json`; supplies ~14 reusable workflow skills. |
+| `MCP Servers` | External tool/data integration pattern documented in `overview.md` §7 but **not configured** in this repo (`[unknown]`/absent — shown for completeness). |
+
+| Relationship | Description |
+|---|---|
+| Developer → System | Interactive use: types slash commands inside a Claude Code session. |
+| CI Caller → System | Headless use: invokes the Python driver, which runs the same workflow via the Agent SDK. |
+| System ⇒ Anthropic API | Sends prompts / agent-loop turns and receives model output over HTTPS. |
+| System ⇒ superpowers plugin | Loads external workflow skills on demand when a skill name matches. |
+| System ⇒ MCP Servers | Documented extension point only; no server is registered, so no live call occurs today. |

@@ -1,10 +1,11 @@
-# C4 Deployment — ClaudeCodeDemo
+# C4 — Deployment
 
-ClaudeCodeDemo has no cloud infrastructure, no containers, and no CI/CD pipeline. Everything runs on a single developer workstation. The repository is cloned from a remote git host and opened directly in the Claude Code CLI; no build step is required. The only network path at runtime is an outbound HTTPS fetch from `/create-command` to `code.claude.com`.
-
----
-
-## Legend
+This view shows *where* things run. ClaudeCodeDemo has no servers, containers, or cloud
+infrastructure — all execution is **local**, on a developer workstation or a CI runner. There
+are two deployment modes: interactive (a human runs `claude .`) and headless (a caller runs
+the Python driver). Both load the same on-disk `.claude/` project settings and both reach out
+to exactly one external node: the Anthropic API. There is no Dockerfile, no orchestration, and
+no IaC in this repo.
 
 ```
 People / Actors
@@ -13,8 +14,8 @@ People / Actors
 System / Container / Component boxes
   +---------------------------+
   |  Name                     |
-  |  [type: Technology]       |
-  |  Short responsibility      |
+  |  [type: Technology]       |   ← technology tag only at L2+
+  |  Short responsibility      |   ← responsibility line only at L3
   +---------------------------+
 
 Relationships (inside system boundary)
@@ -30,91 +31,58 @@ External systems (outside boundary)
   +===========================+
 ```
 
----
-
-## Diagram
-
 ```
-  [ Developer / Learner ]
-         |
-         | keyboard input
-         v
-+===================================================+
-|  Developer Workstation                             |
-|  [Node: Windows 11 Enterprise]                    |
-|                                                    |
-|  +----------------------------------------------+ |
-|  |  Claude Code CLI process                     | |
-|  |  [Runtime: Anthropic CLI + bundled Node.js]  | |
-|  |  Reads config, executes sessions,            | |
-|  |  spawns agents, runs hook scripts            | |
-|  +----------------------------------------------+ |
-|         |                    |                     |
-|  reads / writes (file I/O)  executes (bash fork)  |
-|         |                    |                     |
-|         v                    v                     |
-|  +--------------------+  +---------------------+  |
-|  |  ClaudeCodeDemo    |  |  Hook Scripts       |  |
-|  |  Repository        |  |  [Runtime: Bash +   |  |
-|  |  [Storage: Git     |  |   Node.js JSON]     |  |
-|  |   working tree]    |  |  Short-lived child  |  |
-|  |  .claude/, docs/,  |  |  processes; write   |  |
-|  |  CLAUDE.md,        |  |  to .claude/logs/   |  |
-|  |  overview.md       |  +---------------------+  |
-|  |                    |           |                |
-|  |  .claude/logs/     |<----------+                |
-|  |  (git-ignored,     |   append (bash write)      |
-|  |  runtime state)    |                            |
-|  +--------------------+                            |
-+===================================================+
-         |
-         | HTTPS WebFetch (create-command only)
-         v
-+===========================+
-|  code.claude.com          |
-|  [External Web Service]   |
-|  Slash-command spec docs  |
-+===========================+
-
-         ^
-         |  git clone / git push (SSH)
-         |
-+===========================+
-|  Remote Git Host          |
-|  [External: GitHub-style] |
-|  github-bet4u:            |
-|  DmitryLukyanov/          |
-|  ClaudeCodeDemo.git       |
-+===========================+
++---------------------------------------------+       +==========================+
+|  Local Machine                              |       |  Anthropic Cloud         |
+|  [Node: Developer workstation / CI runner]  |       |                          |
+|  OS: Windows 11 (paths normalized)          |       |  +====================+  |
+|                                             |       |  |  Anthropic API     |  |
+|  +--------------------------------------+   |       |  |  [External SaaS]   |  |
+|  |  Claude Code Runtime                 |   |       |  +====================+  |
+|  |  [Node.js + bundled tooling]         |===========>        ^                 |
+|  |   - loads .claude/ project settings  |   | HTTPS |        |                 |
+|  |   - hosts /reverse-engineer command  |   | agent |        |                 |
+|  |   - spawns 6 subagents, 4 hooks      |   | loop  |        |                 |
+|  |   - superpowers plugin (installed    |   |       |        |                 |
+|  |     once via /plugin install)        |   |       |        |                 |
+|  +--------------------------------------+   |       +==========================+
+|                    ^                        |                |
+|                    | in-process / SDK       |                |
+|  +--------------------------------------+   |                |
+|  |  Python Agent SDK Driver             |   |  HTTPS (via    |
+|  |  [python + claude-agent-sdk]         |==================================> (same API)
+|  |   run-reverse-engineer.py            |   |  SDK query())  |
+|  +--------------------------------------+   |                |
+|                                             |                |
+|  +--------------------------------------+   |                |
+|  |  Working Tree (on-disk state)        |   |                |
+|  |  [Files]                             |   |                |
+|  |   .claude/ (settings, cmds, skills,  |   |                |
+|  |     agents, hooks, rules, logs)      |   |                |
+|  |   docs/ (rendered output)            |   |                |
+|  |   scripts/, CLAUDE.md, overview.md   |   |                |
+|  +--------------------------------------+   |                |
++---------------------------------------------+                |
 ```
-
----
 
 ## Element & Relationship Key
 
-| Element | Type | Description |
-|---|---|---|
-| Developer Workstation | Infrastructure Node | Windows 11 Enterprise; the sole execution environment for all runtime activity |
-| Claude Code CLI process | Runtime | Anthropic's CLI with bundled Node.js; reads config, runs Claude sessions, spawns agents, invokes hooks |
-| ClaudeCodeDemo Repository | Storage | Git working tree on local disk: all source-controlled config files and generated docs |
-| Hook Scripts | Runtime | Short-lived bash child processes forked by the Claude Code harness on lifecycle events; write to `.claude/logs/` |
-| code.claude.com | External Web Service | Public docs site; accessed via HTTPS WebFetch only during `/create-command` runs |
-| Remote Git Host | External Version Control | SSH-accessible git remote (`git@github-bet4u:DmitryLukyanov/ClaudeCodeDemo.git`); source of truth for the repo |
-
-| Relationship | Protocol / Action |
+| Node / Element | Description |
 |---|---|
-| Developer → Claude Code CLI | Keyboard input: slash commands and natural-language prompts |
-| Claude Code CLI → ClaudeCodeDemo Repository | File I/O: reads CLAUDE.md, settings.json, commands, skills, agents at session start and on demand; writes docs/ via skill Write calls |
-| Claude Code CLI → Hook Scripts | Bash fork: spawns hook scripts on lifecycle events (UserPromptSubmit, Stop, SubagentStop, PreToolUse) |
-| Hook Scripts → ClaudeCodeDemo Repository (.claude/logs/) | Bash write: appends structured lines to log files |
-| ClaudeCodeDemo Repository → code.claude.com | HTTPS WebFetch: `/create-command` fetches current slash-command spec |
-| Developer ↔ Remote Git Host | SSH git clone (initial setup) and git push (committing changes) |
+| Local Machine | A single developer workstation or CI runner. All compute happens here; there is no remote deployment target. Tested on Windows 11 (hook scripts normalize `\` → `/` with `tr`). |
+| Claude Code Runtime | The interactive host process. Loads the on-disk `.claude/` project settings, hosts the `/reverse-engineer` command, spawns the six subagents and four hook subprocesses, and loads the superpowers plugin (installed once via `/plugin install superpowers@claude-plugins-official`). |
+| Python Agent SDK Driver | The headless entry point (`scripts/run-reverse-engineer.py`). Requires `pip install claude-agent-sdk` and `ANTHROPIC_API_KEY` (or `claude auth`). Runs the same workflow with `setting_sources=["project"]`, a `$6.00` budget cap, and exit codes 0/1 driven by `ResultMessage.subtype` (`success` / `error_max_budget_usd` / `error_max_turns` / other). |
+| Working Tree | The repository on disk: `.claude/` (settings, commands, skills, agents, hooks, rules, logs), `docs/` (rendered output), `scripts/`, `CLAUDE.md`, `overview.md`. Both runtimes read/write this same tree. |
+| Anthropic API | The only remote node. Provides Claude model inference for the agent loop. |
 
----
+| Network Path | Description |
+|---|---|
+| Claude Code Runtime ⇒ Anthropic API | HTTPS agent-loop / inference traffic during interactive sessions. |
+| Python Driver ⇒ Anthropic API | HTTPS via `claude_agent_sdk.query()` during headless runs. |
+| Driver ↔ Claude Code Runtime | The driver starts a Claude Code agent session in-process via the SDK; both share the same on-disk `.claude/logs/*` state (concurrent runs could interleave writes — no locking). |
 
-## Notes
+## Notes / Gaps
 
-- There is **no staging or production environment** — the repository and its demo workflows run entirely on the developer's local machine.
-- There are **no containers** (no Docker, no Kubernetes). The only "process" isolation is the Claude Code CLI forking short-lived bash child processes for hooks.
-- **`.claude/logs/` is git-ignored** — all runtime state (tracker, timing logs, subagent audit log) is local and ephemeral; it does not travel with the repo.
-- The remote git host URL (`github-bet4u`) suggests a non-standard GitHub hostname alias; the actual remote is SSH-based.
+- **No containers, orchestration, CI/CD, or IaC exist in this repo** — confirmed absent (no Dockerfile, compose, Kubernetes, Terraform, or `.github/workflows`). The Agent SDK driver is *described* as CI-suitable, but no pipeline is wired up.
+- **Python version is unspecified** — no `requirements.txt`, `pyproject.toml`, or `.python-version` (`[unknown]`). `claude-agent-sdk` is a documented prerequisite but not pinned.
+- **MCP servers** are a documented deployment extension point (`overview.md` §7) but none are configured.

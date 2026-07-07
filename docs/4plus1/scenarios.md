@@ -1,10 +1,10 @@
-# 4+1 Scenarios (+1) — ClaudeCodeDemo
+# 4+1 — Scenarios (+1)
 
-Scenarios are the glue view: each trace validates that the logical, process, development, and physical views work together coherently. Three scenarios cover the architecturally significant workflows in ClaudeCodeDemo. The first — `/reverse-engineer` — is the capstone: it exercises every subsystem. The second — turn timing — is the background side-channel that runs on every prompt. The third — `/create-command` — is the only workflow with an outbound network call.
-
----
-
-## Legend
+**What it shows:** Key use cases traced across the other four views. These scenarios are the
+glue that validates the Logical, Process, Development, and Physical views work together — and
+they expose the two most architecturally significant behaviors of this system: the six-way
+parallel fan-out with a synchronization barrier, and the soft write-gate that backstops it.
+**Audience:** everyone — this is the most readable entry point to the architecture.
 
 ```
 Actors / External Agents
@@ -16,9 +16,6 @@ Component / Object / Subsystem
   | <<stereotype>>        |    stereotype: service, module, subsystem, controller, etc.
   '-----------------------'
 
-Infrastructure Node  (Physical view only)
-  [[ Node Name                ]]
-
 Relationships
   ─────────────────>   label          synchronous call / association
   - - - - - - - - ->   label          dependency / uses / sends-to (async)
@@ -27,121 +24,104 @@ Relationships
 
 ---
 
-## Scenario 1: `/reverse-engineer` — Full Codebase Documentation Run
+## Scenario 1 — Full reverse-engineer run (happy path)
 
-*Touches all five views: logical (subsystems), process (6 concurrent agents + hooks), development (commands → agents → skills → output), physical (local file system writes), and the tracker gate (cross-cutting invariant).*
+Touches all four views: the orchestrator (Logical) fans out six parallel agents (Process),
+which read the tree (Physical) and drive the three renderers (Development) to write docs.
 
 ```
-  Developer   Claude Code   rev-eng.md   6 Agents (×6,     log-subagent   guard-rev-  skills (×3)   docs/
-              CLI           (orchestrator) concurrent)       .sh (hook)     eng-docs.sh (sequential)
-      |           |              |               |                |              |            |          |
-      |--/reverse-engineer------>|               |                |              |            |          |
-      |           |--load cmd--->|               |                |              |            |          |
-      |           |              |               |                |              |            |          |
-      |           |              |- truncate tracker ---------------------------->|            |          |
-      |           |              |  (Phase 1: inventory)          |              |            |          |
-      |           |              |               |                |              |            |          |
-      |           |              |-spawn(×6)---->|                |              |            |          |
-      |           |              |  (Phase 2: all concurrent)     |              |            |          |
-      |           |              |               |                |              |            |          |
-      |           |              |               |--read codebase->              |            |          |
-      |           |              |               |  (×6 independently)          |            |          |
-      |           |              |               |                |              |            |          |
-      |           |  SubagentStop|               |                |              |            |          |
-      |           |=============>|               |                |              |            |          |
-      |           |              |               |-SubagentStop-->|              |            |          |
-      |           |              |               |  (each of 6)   |--append name->            |          |
-      |           |              |               |                |  tracker +   |            |          |
-      |           |              |               |                |  subagents.log            |          |
-      |           |              |               |                |              |            |          |
-      |           |              |<--summary (×6 return)----------'              |            |          |
-      |           |              |  (Phase 3: merge facts, invoke skills)        |            |          |
-      |           |              |               |                |              |            |          |
-      |           |              |--invoke c4-documentation-------|------------->|            |          |
-      |           |  PreToolUse  |               |                |              |            |          |
-      |           |=============>|               |                |              |            |          |
-      |           |              |               |                |-read tracker->            |          |
-      |           |              |               |                |  (all 6 present? yes)     |          |
-      |           |              |               |                |              |            |          |
-      |           |              |               |                |         permissionDecision:ok        |
-      |           |              |               |                |              |--Write docs/c4/------>|
-      |           |              |               |                |              |            | (4 files) |
-      |           |              |               |                |              |            |          |
-      |           |              |--invoke 4plus1-documentation--->              |            |          |
-      |           |              |  (same guard fires per Write)  |              |            |          |
-      |           |              |               |                |              |--Write docs/4plus1/-->|
-      |           |              |               |                |              |            | (5 files) |
-      |           |              |               |                |              |            |          |
-      |           |              |--invoke project-overview------->              |            |          |
-      |           |              |               |                |              |--Write docs/overview->|
-      |           |              |               |                |              |            |          |
-      |           |              |--Write docs/COMPARISON.md----->               |            |--------->|
-      |           |              |  (Phase 4: glob verify 11 files)              |            |          |
-      |           |              |               |                |              |            |          |
-      |<--done----|              |               |                |              |            |          |
+ User        Orchestrator     6 Subagents     log-subagent    tracker      3 Skills     guard hook
+   |              |                |               |             |             |             |
+   |--/rev-eng .->|               |               |             |             |             |
+   |              |--Phase1: reset tracker------------------------>(: > )      |             |
+   |              |--Phase2: spawn 6 (parallel)-->|               |             |             |
+   |              |               |--SubagentStop->|--append----->|             |             |
+   |              |               |--SubagentStop->|--append----->|  (x6)       |             |
+   |              |<= = barrier: all six returned = |             |             |             |
+   |              |--Phase3: merge facts------------------------------------->  |             |
+   |              |--invoke c4 / 4+1 / overview----------------------------->   |             |
+   |              |               |               |               | each Write->|--check----->|
+   |              |               |               |               |             |<- all 6 ok -|
+   |              |               |               |               |             |--writes doc |
+   |              |--write COMPARISON.md (direct)------------------------------------------->  |
+   |              |--Phase4: Glob docs/** verify 11 files          |             |             |
+   |<- - report - |               |               |               |             |             |
 ```
 
-**What this scenario reveals:**
-- The tracker file is the central ordering invariant: truncated at Phase 1, written by hooks at Phase 2, read by the guard at Phase 3.
-- The guard hook fires on every Write call to `docs/` — it is a cross-cutting enforcement that touches the process, logical, and physical views simultaneously.
-- Phase 2 parallelism is real concurrency: 6 agents run simultaneously; SubagentStop hooks may fire concurrently.
+Meanwhile, independently: `UserPromptSubmit → turn-start.sh` stamps start time; `Stop →
+turn-complete.sh` appends the turn duration to `turn-completions.log`.
 
 ---
 
-## Scenario 2: Turn Timing — Every Prompt, Every Response
+## Scenario 2 — Guard hook fires (failure / override path)
 
-*Touches the process view (two hooks) and the physical view (local file system). Runs in parallel with every other scenario — it is always active.*
+Touches Process + Logical. Shows the **soft gate**: the guard is a backstop, not a hard lock.
 
 ```
-  Developer   Claude Code   turn-start.sh   turn-complete.sh   .turn-start    turn-completions.log
-      |           |               |                |                |                  |
-      |--prompt-->|               |                |                |                  |
-      |           |               |                |                |                  |
-      |           |--UserPromptSubmit------------->|                |                  |
-      |           |               |--write epoch + prompt--------->|                  |
-      |           |               |                |                |                  |
-      |           |  (Claude generates response)   |                |                  |
-      |           |               |                |                |                  |
-      |           |--Stop------------------------->|                |                  |
-      |           |               |                |--read-------->|                  |
-      |           |               |                |                |                  |
-      |           |               |                |--compute elapsed seconds          |
-      |           |               |                |--append ISO + duration + prompt-->|
-      |           |               |                |                |                  |
-      |<--response|               |                |                |                  |
+ Orchestrator      guard hook (PreToolUse)      tracker            User / Harness
+   |                     |                         |                    |
+   |--Write docs/c4/... ->|                        |                    |
+   |                     |--read completeness----->|                    |
+   |                     |<- missing: e.g. data-flows                   |
+   |                     |--permissionDecision:"ask" (names missing)--->|
+   |                     |                         |    approve anyway? -|
+   |                     |                    (a) YES => write proceeds on incomplete basis
+   |                     |                    (b) NO  => orchestrator spawns missing agent first
+   |<- - - - - - - - - - |                         |                    |
 ```
 
-**What this scenario reveals:**
-- `.turn-start` is ephemeral (overwritten each prompt); `turn-completions.log` is durable (append-only).
-- If Stop fires without a preceding UserPromptSubmit (e.g., harness restart), `turn-complete.sh` exits silently — a deliberate guard.
-- This scenario demonstrates why the Physical view matters: both files are local, git-ignored, and lost if the workstation is wiped.
+This happens when the tracker was truncated or an agent never completed. Because the gate is
+per-write and overridable, correctness ultimately depends on the orchestrator honoring its own
+"wait for all six" barrier.
 
 ---
 
-## Scenario 3: `/create-command` — Scaffolding a New Slash Command
+## Scenario 3 — Headless CI run
 
-*Touches the logical view (scaffolder component), the process view (inline execution in CLI), the physical view (outbound HTTPS + local write), and the development view (output lands in `.claude/commands/`).*
+Touches Physical + Process. The Python driver runs the identical Phase 1–4 flow via the SDK,
+with a hard budget cap that can terminate mid-run.
 
 ```
-  Developer   Claude Code   create-command.md   code.claude.com   helpers.sh   .claude/commands/
-      |           |                |                   |               |                |
-      |--/create-command name desc tools->             |               |                |
-      |           |--load cmd----->|                   |               |                |
-      |           |                |                   |               |                |
-      |           |                |--WebFetch spec--->|               |                |
-      |           |                |<--slash-cmd spec--|               |                |
-      |           |                |                   |               |                |
-      |           |                |--bash check-commands------------->|                |
-      |           |                |<--existing command list-----------|                |
-      |           |                |                   |               |                |
-      |           |  (name collision check; if conflict → ask user)    |                |
-      |           |                |                   |               |                |
-      |           |                |--Write .claude/commands/<name>.md---------------->|
-      |           |                |                   |               |                |
-      |<--done, file path shown----|                   |               |                |
+ CI Shell      run-reverse-engineer.py     SDK query()       Claude session     ResultMessage
+   |                  |                        |                   |                 |
+   |--python ...  --->|                        |                   |                 |
+   |                  |--query(/rev-eng .)----->|                   |                 |
+   |                  |                        |--drives Phase1-4-->|                 |
+   |                  |<==stream Assistant/User/System messages=====|                 |
+   |                  |                        |                   |--terminal------>|
+   |                  |<- - - - - - - - - - - - subtype - - - - - - - - - - - - - - -|
+   |                  |  success        => print cost/turns/session; exit 0          |
+   |                  |  error_max_budget_usd => print resume hint (session_id); exit 1
+   |<- - exit code - -|  error_max_turns => resume hint; exit 1                       |
 ```
 
-**What this scenario reveals:**
-- This is the only workflow with an outbound network call (`code.claude.com`) — all others are purely local.
-- The new command file is immediately available as `/<name>` in the same session — no restart needed.
-- The guard hook (`guard-reverse-engineer-docs.sh`) does **not** fire here because the target path is `.claude/commands/`, not `docs/` — the guard is narrowly scoped.
+---
+
+## Scenario 4 — /create-command scaffolding
+
+Touches Logical + Development. Shows the secondary command and its live-docs dependency.
+
+```
+ User        /create-command      code.claude.com     helpers.sh(check-cmds)   commands/
+   |              |                     |                     |                    |
+   |--/create-command name "desc" ---->|                     |                    |
+   |              |--WebFetch docs----->|                     |                    |
+   |              |<- - frontmatter/syntax                    |                    |
+   |              |--check-commands---------------------------->|                  |
+   |              |<- - existing commands (echoed verbatim) - -|                    |
+   |              |--collision? ask before overwrite --------------------->(User)  |
+   |              |--compose frontmatter + body                |                    |
+   |              |--Write <name>.md (guard hook passes: not under docs/**)-------->|
+   |<- - report path + contents - -|    |                     |                    |
+```
+
+---
+
+## Scenario coverage
+
+| Scenario | Happy path | Async/parallel | Failure/boundary | Views exercised |
+|---|---|---|---|---|
+| 1 — Full run | ✓ | ✓ (6-way fan-out + barrier) | | Logical, Process, Development, Physical |
+| 2 — Guard fires | | | ✓ (soft gate override) | Process, Logical |
+| 3 — Headless CI | ✓ | | ✓ (budget cap mid-run) | Physical, Process |
+| 4 — /create-command | ✓ | | ✓ (collision check) | Logical, Development |

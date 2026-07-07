@@ -51,11 +51,13 @@ python scripts/run-reverse-engineer.py [path]
 
 ### What it does
 
-- Runs `/reverse-engineer <path>` with a **$2.00 budget cap**
+- Runs `/reverse-engineer <path>` with a **$6.00 budget cap**
 - Pre-approves all tools the command needs (no interactive prompts)
 - Loads this project's CLAUDE.md, skills, and hooks automatically
 - Prints cost, turn count, and session ID when done
 - Exits `0` on success, `1` on any error (budget exceeded, turn limit, crash)
+
+> **Note:** `effort="medium"` is used deliberately. `"high"` enables extended thinking which consumes context fast — the agent can exhaust the context window before Phase 3 completes and declare premature success.
 
 ### Example output
 

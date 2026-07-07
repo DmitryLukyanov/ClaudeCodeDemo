@@ -1,188 +1,146 @@
 # ClaudeCodeDemo — Project Overview
 
----
-
 ## 1. Goal / Purpose
 
-ClaudeCodeDemo is a hands-on study guide for Claude Code — Anthropic's AI-powered CLI for software engineering. Instead of documenting features in the abstract, every Claude Code capability is demonstrated with a working example that lives in this repository. Open the repo in Claude Code, run a command, and see the feature in action.
+**ClaudeCodeDemo** is a hands-on study guide that demonstrates real-world usage of Claude Code
+features, each illustrated with a concrete, runnable example. It is deliberately
+*self-referential*: the repository's own configuration — its commands, skills, agents, hooks,
+and rules — is both the teaching material and the subject the tools operate on.
 
-The intended audience is developers and teams who want to adopt Claude Code and need concrete patterns to follow: how to write a `CLAUDE.md`, how to enforce coding rules, how to build reusable slash commands, how to fan out parallel sub-agents over a codebase, and how to wire up lifecycle hooks for audit logging and safety guards. The `/reverse-engineer` command is the capstone — it combines every feature into one orchestrated workflow that produces architecture documentation for any codebase in a single run.
-
----
+The flagship capability is the **`/reverse-engineer` command**, which turns any codebase into a
+consistent set of architecture documentation: C4 diagrams, Kruchten 4+1 views, a standalone
+overview, and a comparison of the two notations. It does this by gathering facts about the
+system **once** (via six parallel sub-agents), then rendering that single fact set through
+three documentation skills — so all outputs describe the same system rather than three
+independently-researched, possibly inconsistent views. Along the way the repo showcases every
+major Claude Code feature: `CLAUDE.md`, rules, slash commands, skills, sub-agents, hooks, MCP
+servers (documented pattern only), external skills (the superpowers plugin), and the Agent SDK.
 
 ## 2. Technologies Used
 
 | Category | Technology | Version / Notes |
 |---|---|---|
-| Primary language | Markdown | CommonMark; all commands, skills, agents, rules |
-| Scripting | Bash | POSIX-compatible; lifecycle hook scripts |
-| JSON parsing in hooks | Node.js | Bundled with Claude Code CLI; no separate install |
-| Config format | JSON | `.claude/settings.json` |
-| Runtime | Claude Code CLI | Anthropic; version not pinned — auto-updates |
-| OS | Windows 11 Enterprise | Developer workstation; hooks use bash via Claude Code |
-| Version control | Git | Single `master` branch |
-| Agent models | claude-haiku | Used for cheap read-only agents (tech-stack, external-integrations, deployment-infra) |
-| Agent models | claude-sonnet | Used for analysis-heavy agents (module-map, data-flows, runtime-process) and the orchestrator |
-
-> There are no compiled artifacts, no package manifests (`package.json`, `go.mod`, etc.), and no build step. This is a configuration and documentation repository — the "application" is Claude Code itself.
-
----
+| Language | Python | 3.x — `[unknown]` exact version (no `.python-version`/manifest); asyncio; `claude_agent_sdk` |
+| Language | Bash / POSIX shell | 4 lifecycle hooks + `helpers.sh` (~200 lines); parse JSON stdin via `node -e` |
+| Config language | Markdown + YAML frontmatter | commands, skills (`SKILL.md`), agents, rules (~1000+ lines) |
+| Config language | JSON | `.claude/settings.json` (hooks + `enabledPlugins`), `settings.local.json` (permissions) |
+| Runtime | Node.js | Bundled with Claude Code; used by hooks for JSON parsing |
+| SDK | claude-agent-sdk (PyPI) | **Unpinned** — no `requirements.txt`/`pyproject.toml` (GAP) |
+| Plugin | superpowers | `superpowers@claude-plugins-official`; ~14 workflow skills |
+| Models | Claude haiku / sonnet | haiku: tech-stack, external-integrations, deployment-infra; sonnet: module-map, data-flows, runtime-process; `/create-command` uses claude-sonnet-5 |
+| Database / Queue / Containers / CI / IaC | None | Intentionally absent — this is a config/demo repo, not a deployed service |
+| Build system | None | No Makefile or manifest; run interactively or via the Python driver |
 
 ## 3. Runtime / Process Notes
 
-There is no server, daemon, or long-running application process. The Claude Code CLI is the sole persistent process during a session; it reads `.claude/` configuration files at startup and executes Claude turns interactively.
-
-All other runtime activity is short-lived: the four hook scripts (`turn-start.sh`, `turn-complete.sh`, `log-subagent.sh`, `guard-reverse-engineer-docs.sh`) are bash child processes forked by the Claude Code harness on lifecycle events and exit in under a second each. During `/reverse-engineer` Phase 2, six Claude inference sub-agents run concurrently (`background: true`) as independent inference calls — all read-only, no write contention. Phases 1, 3, and 4 of that command are serial in the orchestrator's own context. There are no scheduled jobs, no message queues, and no background workers.
-
----
+At runtime there is a **single top-level process**: either an interactive Claude Code session
+(`claude .`) or a headless Python asyncio process (`scripts/run-reverse-engineer.py`), which
+drives the same workflow through the Agent SDK. The one place real concurrency appears is
+**Phase 2 of `/reverse-engineer`**, where the orchestrator spawns exactly **six read-only
+sub-agents in parallel** (`background: true`) that analyze the codebase simultaneously; the
+orchestrator then **waits at a barrier** for all six to return before synthesizing. Four
+**lifecycle hooks** run as short-lived subprocesses on Claude Code events (they are not
+daemons): one logs each finishing sub-agent, one guards documentation writes, and two record
+per-turn timing. Coordination between hooks and the orchestrator happens through a plain-text
+**tracker file** (`.claude/logs/reverse-engineer-run.tracker`), an append-only completion tally
+reset at the start of each run. There are **no cron jobs, message queues, brokers, daemons, or
+thread pools**.
 
 ## 4. Sequence Schema
 
-### Session Start — Context Loading
+### Flow 1 — Full reverse-engineer run (the primary happy path)
 
-Every Claude Code session automatically loads project context before the first user prompt.
-
-```
-  Developer    Claude Code CLI    CLAUDE.md    .claude/settings.json
-      |               |               |                  |
-      |--open repo--->|               |                  |
-      |               |--read-------->|                  |
-      |               |<- - context --|                  |
-      |               |--read rules, skills, commands--->|
-      |               |<- - hooks registered, perms set--|
-      |               |                                  |
-      |<--ready-----  |               |                  |
-```
-
----
-
-### `/reverse-engineer` — 4-Phase Orchestration
-
-The capstone command: produces 11 architecture doc files from a single prompt.
+Illustrates the fan-out/fan-in pipeline: orient, spawn six agents, join, render, verify.
 
 ```
-  Developer    Orchestrator    6 Agents (×6)    log-subagent.sh    Skills (×3)    docs/
-      |              |               |                  |                |            |
-      |--/rev-eng--->|               |                  |                |            |
-      |              |--truncate tracker--------------->|                |            |
-      |              |               |                  |                |            |
-      |              |--spawn(×6)--->|                  |                |            |
-      |              |  (concurrent) |--read codebase-->|                |            |
-      |              |               |  SubagentStop    |                |            |
-      |              |               |=================>|                |            |
-      |              |               |                  |--append tracker|            |
-      |              |<--summaries (×6 return)----------|                |            |
-      |              |               |                  |                |            |
-      |              |--invoke skills (sequential)------>                |            |
-      |              |               |  PreToolUse guard checks tracker  |            |
-      |              |               |                  |--Write docs/-->|            |
-      |              |               |                  |         (11 files total)    |
-      |              |--glob verify  |                  |                |            |
-      |<--done-----  |               |                  |                |            |
+  User        Orchestrator      6 Subagents      Tracker        3 Skills
+   |               |                 |              |               |
+   |--/rev-eng .-->|                 |              |               |
+   |               |--Phase1: reset tracker + orient (Glob/Read)---|
+   |               |--Phase2: spawn 6 (parallel)-->|               |
+   |               |                 |══SubagentStop: append══>|   |
+   |               |<= = barrier: wait for all six = |            |
+   |               |--Phase3: merge facts, invoke skills--------->|
+   |               |                 |              | (guard hook  |--writes
+   |               |                 |              |  checks: 6 ok)|  docs/*
+   |               |--write COMPARISON.md (direct)                 |
+   |               |--Phase4: Glob docs/** verify 11 files         |
+   |<- - report - -|                 |              |               |
 ```
 
----
+### Flow 2 — Headless / CI run via the Agent SDK
 
-### Turn Timing — Background Measurement
-
-Runs silently on every prompt/response cycle; produces a durable timing log.
+Same Phase 1–4 flow, driven by Python with a hard budget cap that can stop it mid-run.
 
 ```
-  Developer    Claude Code CLI    turn-start.sh    turn-complete.sh    .claude/logs/
-      |               |                |                   |                 |
-      |--prompt------->|               |                   |                 |
-      |               |--UserPromptSubmit--------------->  |                 |
-      |               |                |--write .turn-start--------------->  |
-      |               |   (Claude generates response)      |                 |
-      |               |--Stop-------------------------------->               |
-      |               |                |                   |--read .turn-start
-      |               |                |                   |--append duration->
-      |<--response----|                |                   |   turn-completions.log
+  CI Shell     run-reverse-engineer.py     SDK query()      ResultMessage
+   |                  |                        |                 |
+   |--python ...  --->|                        |                 |
+   |                  |--query("/rev-eng .")-->|                 |
+   |                  |<==stream Assistant/User/System msgs======|
+   |                  |<- - - - subtype - - - - - - - - - - - - -|
+   |                  |  success              => exit 0          |
+   |                  |  error_max_budget_usd => resume hint;exit1|
+   |<- - exit code - -|  error_max_turns      => resume hint;exit1|
 ```
 
----
+### Flow 3 — Scaffold a new slash command (`/create-command`)
+
+Shows the secondary command and its live-docs dependency.
+
+```
+  User      /create-command     code.claude.com    helpers.sh     commands/
+   |             |                    |                 |             |
+   |--/create-command name "desc"---->|                 |             |
+   |             |--WebFetch docs----->|                 |             |
+   |             |--check-commands (echo verbatim)------>|             |
+   |             |--collision? ask before overwrite                   |
+   |             |--Write .claude/commands/<name>.md----------------->|
+   |<- - report path + contents - -|   |                 |             |
+```
 
 ## 5. External References
 
 **Datastores**
-
-None. All runtime state is local to the developer workstation in `.claude/logs/` (git-ignored).
+None. This repo has no database, cache, or object store.
 
 **Third-party APIs & Services**
-
-| Service | Used for | When |
-|---|---|---|
-| `code.claude.com` | Fetch current slash-command frontmatter spec | `/create-command` runs only |
-| Anthropic Claude API | Powers all Claude inference (implicit via Claude Code CLI) | Every session |
-
-**MCP Servers**
-
-None currently configured in `.claude/settings.json`. Two are documented in `overview.md` as optional:
-- **Atlassian MCP** — would enable Jira ticket fetching; not installed.
-- **superpowers** (`@obra/superpowers`) — would add persistent cross-session memory and browser automation; not installed.
+- **Anthropic API** (Claude models) — reached via `claude_agent_sdk`; the only outbound network dependency. Provides model inference for the agent loop.
+- **superpowers plugin** (`superpowers@claude-plugins-official`) — external Claude Code plugin enabled in `.claude/settings.json`; supplies ~14 reusable workflow skills. Installed once via `/plugin install superpowers@claude-plugins-official`.
+- **code.claude.com** — `/create-command` performs a `WebFetch` to the live slash-command documentation when scaffolding new commands.
+- **MCP servers** — a documented extension pattern (see `overview.md` §7 in the repo root, the study-guide index) but **none are configured** in this repo.
 
 **Auth**
+- **Anthropic authentication** — via the `ANTHROPIC_API_KEY` environment variable or a prior `claude auth` login. Required for the headless Agent SDK driver. No other auth providers.
 
-None. The repo has no authentication integration. Claude Code CLI handles Anthropic API authentication externally (credentials not stored in this repo).
-
-**Related repositories / docs**
-
-| Resource | Notes |
-|---|---|
-| [Claude Code docs](https://code.claude.com/) | Official documentation for all features demonstrated here |
-| [superpowers](https://github.com/obra/superpowers) | Optional MCP integration; install separately if needed |
-| `overview.md` (repo root) | Human-readable study guide with run steps for all 9 demos — distinct from this file |
-
----
+**Related repositories / docs / tickets**
+- Repo-root study guide: `overview.md` (the master feature index), `README.md`, `CLAUDE.md`.
+- superpowers plugin: https://github.com/obra/superpowers
+- Claude Agent SDK: https://code.claude.com/docs/en/agent-sdk/agent-loop
+- Companion architecture docs generated by this workflow: `docs/c4/`, `docs/4plus1/`, `docs/COMPARISON.md`.
 
 ## 6. How to Build / Run
 
-### Prerequisites
+There is **no build step**. Two ways to run:
 
-- **Claude Code CLI** — install from [claude.ai/code](https://claude.ai/code) or via the Anthropic CLI installer. No version pin; use the latest.
-- **Bash** — required to execute hook scripts. On Windows, Claude Code bundles a Bash environment.
-- **Git** — for cloning the repo.
-- No Node.js install needed — it is bundled with Claude Code and used only internally by hook scripts.
+### Interactive (in Claude Code)
+1. **Prerequisite:** open the repo in Claude Code — `claude .` (auto-loads `CLAUDE.md`, `.claude/settings.json` hooks + plugins, rules, commands, skills, agents).
+2. **One-time:** install the superpowers plugin — `/plugin install superpowers@claude-plugins-official`.
+3. **Run the capstone:** type `/reverse-engineer .` (or any target path). Watch the six agents run in parallel, then the three skills render docs.
+4. **Or scaffold a command:** `/create-command my-command "What it does" "Read, Grep"`.
 
-### Get the repo
+### Headless (CI / automation)
+1. **Prerequisites:** `pip install claude-agent-sdk`; set `ANTHROPIC_API_KEY` (or run `claude auth`).
+2. **Run:** `python scripts/run-reverse-engineer.py [path]` (path defaults to `.`).
+   - Enforces a **$6.00 budget cap**; uses `effort="medium"` deliberately (`"high"` exhausts context before Phase 3 completes).
+   - Exit code **0** on success; **1** on budget cap / turn limit / error (prints a resume hint with the session ID).
 
-```bash
-git clone git@github-bet4u:DmitryLukyanov/ClaudeCodeDemo.git
-cd ClaudeCodeDemo
-```
+### Helper (optional)
+- `bash .claude/scripts/helpers.sh top-level-listing` — cheap orientation listing.
+- `bash .claude/scripts/helpers.sh check-commands` — lists existing slash commands.
 
-### Open in Claude Code
-
-```bash
-claude  # or open via the Claude Code desktop app / IDE extension
-```
-
-No build step, no `npm install`, no environment variables required. Claude Code reads `CLAUDE.md` and `.claude/settings.json` automatically on startup.
-
-### Run the demos
-
-| Demo | Command | What you see |
-|---|---|---|
-| CLAUDE.md | Ask: *"What does this project do?"* | Claude answers from CLAUDE.md without scanning files |
-| Rules | Ask Claude to create a `*.broken_md` file with a numbered list | List uses ordinal text ("The first.", "The second.") |
-| Slash commands | Type `/create-command my-cmd "Does X" "Read,Grep"` | New `.claude/commands/my-cmd.md` written and shown |
-| Skills | Ask: *"Produce a C4 overview of this repo"* | `c4-documentation` skill fires; writes to `docs/c4/` |
-| Sub-agents | Type `/reverse-engineer .` | Six agents run in parallel (watch the progress) |
-| Hooks | Run `/reverse-engineer .`, then check `.claude/logs/subagents.log` | One timestamped entry per completing agent |
-| Full capstone | Type `/reverse-engineer .` | Eleven files written to `docs/`; timing in `turn-completions.log` |
-
-### Verify hook logging (optional)
-
-After a `/reverse-engineer` run:
-
-```bash
-# Confirm all 6 agents were recorded
-cat .claude/logs/subagents.log
-
-# Check turn duration for the run
-cat .claude/logs/turn-completions.log
-```
-
-### No test suite
-
-This is a documentation repository — there are no automated tests. Correctness is verified by running the demos and inspecting the output files.
+### Outputs & verification
+- **11 generated files:** `docs/c4/{context,container,component,deployment}.md`, `docs/4plus1/{logical,process,development,physical,scenarios}.md`, `docs/overview.md`, `docs/COMPARISON.md`.
+- **Verify a run:** `.claude/logs/subagents.log` confirms all six agents fired; `.claude/logs/turn-completions.log` shows the run duration.
+- **Platform:** tested on Windows 11 (hook scripts normalize backslashes to forward slashes).
+- **Tests:** none in this repo (no automated test suite).

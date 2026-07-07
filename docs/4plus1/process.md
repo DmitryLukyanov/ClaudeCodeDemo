@@ -1,10 +1,12 @@
-# 4+1 Process View — ClaudeCodeDemo
+# 4+1 — Process View
 
-The process view shows what actually runs at runtime during a Claude Code session. There is no server or daemon — the Claude Code CLI is the sole persistent process. All other runtime activity happens in short-lived child processes: four hook scripts forked by the harness on lifecycle events, and up to six Claude inference sub-agents running concurrently when `/reverse-engineer` is active. This view is where the concurrency of Phase 2 and the ordering enforcement of the tracker gate are most clearly expressed.
-
----
-
-## Legend
+**What it shows:** The runtime concurrency picture — the processes that exist, the six-way
+parallel subagent fan-out, the synchronization barrier before synthesis, and the short-lived
+hook subprocesses fired by lifecycle events. This is the view C4 compresses away, so it is the
+richest here. **Audience:** anyone reasoning about ordering guarantees, the fan-out/join
+barrier, or the soft write-gate. Note up front: there are **no cron jobs, no message
+queues/brokers, no daemons, and no thread pools** — all concurrency is either Claude Code's
+background-subagent fan-out or a single Python asyncio loop.
 
 ```
 Actors / External Agents
@@ -25,125 +27,64 @@ Relationships
   ════════════════>   label          IPC / queue message / event
 ```
 
----
-
-## Diagram
-
 ```
-(( Developer ))
-      |
-      | types prompt / slash command
-      v
-.-----------------------------------------.
-| Claude Code CLI                          |
-| <<process: persistent>>                  |
-| Single long-running process per session; |
-| reads config, executes Claude turns,     |
-| dispatches lifecycle events to hooks     |
-'-----------------------------------------'
-      |
-      |──── on every UserPromptSubmit ────────────────────────────────>
-      |                                                                 |
-      |                                                        .------------------------.
-      |                                                        | turn-start.sh          |
-      |                                                        | <<process: bash, 1s>>  |
-      |                                                        | Writes epoch +         |
-      |                                                        | prompt to .turn-start  |
-      |                                                        '------------------------'
-      |
-      |──── on every Stop ────────────────────────────────────────────>
-      |                                                                 |
-      |                                                        .------------------------.
-      |                                                        | turn-complete.sh       |
-      |                                                        | <<process: bash, 1s>>  |
-      |                                                        | Reads .turn-start;     |
-      |                                                        | appends TSV row to     |
-      |                                                        | turn-completions.log   |
-      |                                                        '------------------------'
-      |
-      |──── on Write/Edit to docs/** (PreToolUse) ───────────────────>
-      |                                                                |
-      |                                                       .-------------------------.
-      |                                                       | guard-reverse-          |
-      |                                                       | engineer-docs.sh        |
-      |                                                       | <<process: bash, <1s>>  |
-      |                                                       | Reads tracker; if any   |
-      |                                                       | of the 6 agents absent, |
-      |                                                       | returns                 |
-      |                                                       | permissionDecision:ask  |
-      |                                                       '-------------------------'
-      |
-      |──── /reverse-engineer Phase 2: spawns 6 agents concurrently ─>
-      |
-      |   .--------------------.  .--------------------.  .--------------------.
-      |   | tech-stack agent   |  | module-map agent   |  | external-integr.   |
-      |   | <<agent: haiku>>   |  | <<agent: sonnet>>  |  | <<agent: haiku>>   |
-      |   | Read-only scan     |  | Read-only scan     |  | Read-only scan     |
-      |   | background:true    |  | background:true    |  | background:true    |
-      |   '--------------------'  '--------------------'  '--------------------'
-      |         |                       |                        |
-      |   .--------------------.  .--------------------.  .--------------------.
-      |   | data-flows agent   |  | deployment-infra   |  | runtime-process    |
-      |   | <<agent: sonnet>>  |  | <<agent: haiku>>   |  | <<agent: sonnet>>  |
-      |   | Read-only scan     |  | Read-only scan     |  | Read-only scan     |
-      |   | background:true    |  | background:true    |  | background:true    |
-      |   '--------------------'  '--------------------'  '--------------------'
-      |         |                       |                        |
-      |         | (each on SubagentStop)
-      |         v
-      |   .------------------------.
-      |   | log-subagent.sh        |
-      |   | <<process: bash, <1s>> |
-      |   | Fired per completing   |
-      |   | agent; appends name    |
-      |   | to tracker +           |
-      |   | subagents.log          |
-      |   '------------------------'
-      |
-      |──── /reverse-engineer Phase 3: skills run sequentially ──────>
-      |
-      |   .--------------------.   (then)   .--------------------.
-      |   | c4-documentation   |            | 4plus1-            |
-      |   | <<skill: inline>>  |            | documentation      |
-      |   | Writes docs/c4/    |            | <<skill: inline>>  |
-      |   | (4 files)          |            | Writes docs/4plus1/|
-      |   '--------------------'            | (5 files)          |
-      |                                     '--------------------'
-      |                         (then)
-      |   .--------------------.
-      |   | project-overview   |
-      |   | <<skill: inline>>  |
-      |   | Writes             |
-      |   | docs/overview.md   |
-      |   '--------------------'
-      |
-      |   Each skill Write triggers guard-reverse-engineer-docs.sh (see above)
-```
+  (( User / SDK ))
+       |
+       | /reverse-engineer .
+       v
+ .---------------------------.
+ | Orchestrator (main context)|  Phase 1: reset tracker (: > tracker), orient
+ | <<process: Claude session>>|
+ '---------------------------'
+       |  Phase 2: spawn 6 (Agent tool, background:true)  — TRUE PARALLEL
+       |----------------+----------------+---------------+---------------+--------------+
+       v                v                v               v               v              v
+ .-----------.   .-----------.   .-------------.   .-----------.   .-------------.  .-------------.
+ | tech-stack|   | module-map|   |external-int.|   | data-flows|   |deploy-infra |  |runtime-proc |
+ | <<haiku>> |   | <<sonnet>>|   | <<haiku>>   |   | <<sonnet>>|   | <<haiku>>   |  | <<sonnet>>  |
+ '-----------'   '-----------'   '-------------'   '-----------'   '-------------'  '-------------'
+       |  SubagentStop  |  SubagentStop  | ...            |               |              |
+       ════ append ════> ════ append ════> ════ append ════════════════════════════════>
+                                                  v
+                                        .-------------------------.
+                                        | reverse-engineer-run.   |
+                                        | tracker <<shared state>>|  (append-only, no lock)
+                                        '-------------------------'
+       |  ===== BARRIER: wait for all six to return =====
+       v
+ .---------------------------.
+ | Orchestrator (Phase 3/4)  |  merge facts -> invoke 3 skills -> write docs -> verify
+ '---------------------------'
+       |  each guarded Write
+       v
+ .---------------------------.   reads tracker; if any of 6 missing => permissionDecision:"ask"
+ | guard hook (PreToolUse)   |   (SOFT gate, per-write, only docs/c4|4plus1|overview|COMPARISON)
+ '---------------------------'
 
----
+  Independent per-turn timing (any turn):
+  (( UserPromptSubmit )) --> turn-start.sh  ════ stamp ════> .turn-start
+  (( Stop ))             --> turn-complete.sh <== read ==   .turn-start  ══> turn-completions.log
+```
 
 ## Element & Relationship Key
 
-| Process | Type | Lifetime | Description |
-|---|---|---|---|
-| Claude Code CLI | `<<process: persistent>>` | Entire session | Reads config, executes Claude turns, dispatches lifecycle events to hook scripts |
-| turn-start.sh | `<<process: bash>>` | ~1 second | Forked on UserPromptSubmit; writes epoch + prompt to `.turn-start`; exits |
-| turn-complete.sh | `<<process: bash>>` | ~1 second | Forked on Stop; reads `.turn-start`, computes elapsed, appends to `turn-completions.log`; exits |
-| guard-reverse-engineer-docs.sh | `<<process: bash>>` | < 1 second | Forked on PreToolUse (Write/Edit) targeting `docs/`; reads tracker; returns `permissionDecision:ask` if any agent missing; exits |
-| log-subagent.sh | `<<process: bash>>` | < 1 second | Forked on SubagentStop for the 6 named agent types; appends agent name to tracker + `subagents.log`; exits |
-| tech-stack agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns language/framework summary |
-| module-map agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns component structure summary |
-| external-integrations agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns external dependency summary |
-| data-flows agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns end-to-end flow summary |
-| deployment-infra agent | `<<agent: haiku>>` | Minutes (async) | Concurrent read-only Claude inference; returns infra/deployment summary |
-| runtime-process agent | `<<agent: sonnet>>` | Minutes (async) | Concurrent read-only Claude inference; returns process/concurrency summary |
-| c4-documentation skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes 4 Markdown files to `docs/c4/` |
-| 4plus1-documentation skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes 5 Markdown files to `docs/4plus1/` |
-| project-overview skill | `<<skill: inline>>` | Minutes | Runs in orchestrator's Claude context; writes `docs/overview.md` |
-
-| Concurrency Notes | |
+| Process / Element | Description |
 |---|---|
-| Phase 2 parallelism | All 6 agents run simultaneously (`background:true`); orchestrator waits for all before Phase 3 |
-| Hook parallelism | Multiple SubagentStop hooks may fire concurrently as agents complete; appends to tracker are not locked (low risk for small writes) |
-| Skills are serial | Phases 3 skills run sequentially in the orchestrator's single Claude context |
-| No scheduled jobs | There are no cron entries or recurring background tasks |
+| Orchestrator (main context) | The single top-level process: a Claude Code session (interactive) or the Python asyncio process (headless). Runs Phases 1–4 sequentially. |
+| 6 subagents (`<<haiku>>`/`<<sonnet>>`) | Launched via the `Agent` tool with `background:true`; run **in true parallel** against the same codebase. Read-only, so no write races among them. |
+| reverse-engineer-run.tracker `<<shared state>>` | Plain-text, append-only completion tally. Reset in Phase 1 to avoid stale completions. Written concurrently by independent short-lived hook processes — POSIX small-append-safe but **unlocked** (risky if agent count grows). |
+| guard hook (PreToolUse) | Fires before every `Write`/`Edit`; for guarded doc paths, checks the tracker for all six agent names and emits `permissionDecision:"ask"` if any are missing. |
+| turn-start.sh / turn-complete.sh | Per-turn timing subprocesses (UserPromptSubmit / Stop); independent of the reverse-engineer workflow. |
+
+| Mechanism | Description |
+|---|---|
+| Fan-out (`------+------`) | Phase 2 spawns exactly six background subagents at once. |
+| `════ append ════>` (SubagentStop) | Each finishing agent triggers `log-subagent.sh`, which appends its name to the tracker + `subagents.log`. |
+| BARRIER | Phase 3 must not begin until all six summaries return; orchestrator must not re-scan the codebase afterward. |
+| Soft gate | The guard is enforced **per-write**, not as a true blocking barrier — a backstop, overridable by approval. |
+
+## Concurrency notes & latent fragilities
+
+- **Two loosely-coupled barrier mechanisms:** (a) the orchestrator's own "wait for all six" instruction and (b) the guard hook's tracker check. If the orchestrator writes early, only the guard backstops it — and only for the four guarded doc-path globs.
+- **Python driver:** a single asyncio event loop with one `async for message in query(...)` consumer; no threads. A FIFO `deque` correlates tool-call requests to results, assuming strict request/response ordering (latent fragility if ever violated).
+- **Resource limiter:** `max_budget_usd=6.00` can stop the run mid-flight; `effort="medium"` is chosen deliberately because `"high"` exhausts context before Phase 3 completes.

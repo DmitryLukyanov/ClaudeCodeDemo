@@ -1,10 +1,12 @@
-# 4+1 Logical View — ClaudeCodeDemo
+# 4+1 — Logical View
 
-The logical view decomposes ClaudeCodeDemo into its key functional abstractions: the configuration artifacts that govern Claude Code behavior. The system has five conceptual subsystems — context, orchestration, analysis, rendering, and enforcement — each made up of specific files that Claude Code reads and acts on. There are no classes or services in the traditional sense; the "components" are prompt templates, skill definitions, agent definitions, and bash scripts, bound together by the Claude Code runtime.
-
----
-
-## Legend
+**What it shows:** The functional decomposition of ClaudeCodeDemo — the key abstractions and
+their structural relationships. This system has no application classes; its "components" are
+Claude Code configuration artifacts. The design is a **command-orchestrator fan-out/fan-in
+pipeline**: one command owns all coordination, while fact-gathering agents and rendering
+skills are peers that never call each other (an enforced acyclic dependency: command→agents,
+command→skills). Cross-cutting concerns live as declarative hooks. **Audience:** developers
+and architects reasoning about the design's structure and maintainability.
 
 ```
 Actors / External Agents
@@ -25,127 +27,58 @@ Relationships
   ════════════════>   label          IPC / queue message / event
 ```
 
----
-
-## Diagram
-
 ```
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Context Subsystem ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  .-----------------------.     .-----------------------.
-  | CLAUDE.md             |     | overview.md           |
-  | <<context>>           |     | <<guide>>             |
-  | Project context;      |     | Master study guide;   |
-  | injected into every   |     | indexes 9 feature     |
-  | session automatically |     | demos with run steps  |
-  '-----------------------'     '-----------------------'
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Orchestration Subsystem ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  .-------------------------.     .-------------------------.
-  | reverse-engineer.md     |     | create-command.md       |
-  | <<orchestrator>>        |     | <<scaffolder>>          |
-  | 4-phase workflow:       |     | Generates new slash     |
-  | inventory → agents →    |     | command files from      |
-  | skills → verify         |     | user arguments          |
-  '------------|------------'     '--------------------------|'
-               |                                             |
-  spawns (×6)  |                invokes (×3)   fetches spec  |
-               |                      |                      |
-└ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┼ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-               |                      |
-               v                      v
-┌ ─ ─ Analysis Subsystem ─ ─ ┐  ┌ ─ ─ Rendering Subsystem ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  .---------------------.        .-------------------------.
-  | tech-stack agent    |        | c4-documentation        |
-  | <<agent: haiku>>    |        | <<skill>>               |
-  | Languages, builds,  |        | Writes docs/c4/ (4 files)|
-  | frameworks, runtimes|        '-------------------------'
-  '---------------------'
-  .---------------------.        .-------------------------.
-  | module-map agent    |        | 4plus1-documentation    |
-  | <<agent: sonnet>>   |        | <<skill>>               |
-  | Internal structure  |        | Writes docs/4plus1/     |
-  | and call graph      |        | (5 files)               |
-  '---------------------'        '-------------------------'
-  .---------------------.
-  | external-integrations        .-------------------------.
-  | <<agent: haiku>>    |        | project-overview        |
-  | DBs, APIs, queues   |        | <<skill>>               |
-  '---------------------'        | Writes docs/overview.md |
-  .---------------------.        '-------------------------'
-  | data-flows agent    |
-  | <<agent: sonnet>>   |
-  | End-to-end request  |
-  | paths               |
-  '---------------------'
-  .---------------------.
-  | deployment-infra    |
-  | <<agent: haiku>>    |
-  | Containers, CI/CD,  |
-  | infra topology      |
-  '---------------------'
-  .---------------------.
-  | runtime-process     |
-  | <<agent: sonnet>>   |
-  | Processes, threads, |
-  | concurrency model   |
-  '---------------------'
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-                                └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
-
-┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ Enforcement Subsystem ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐
-  .-------------------------.     .-------------------------.
-  | log-subagent.sh         |     | guard-reverse-          |
-  | <<hook: SubagentStop>>  |     | engineer-docs.sh        |
-  | Appends agent name to   |     | <<hook: PreToolUse>>    |
-  | tracker + subagents.log |     | Gates docs/ writes;     |
-  '-------------------------'     | reads tracker           |
-                                  '-------------------------'
-  .-------------------------.     .-------------------------.
-  | turn-start.sh           |     | turn-complete.sh        |
-  | <<hook: PromptSubmit>>  |     | <<hook: Stop>>          |
-  | Stamps .turn-start      |     | Appends timing to       |
-  | with epoch + prompt     |     | turn-completions.log    |
-  '-------------------------'     '-------------------------'
-
-  .-------------------------.
-  | markdown.md             |
-  | <<rule: path-scoped>>   |
-  | Ordinal list style for  |
-  | *.broken_md files only  |
-  '-------------------------'
-└ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘
+        (( Developer / User ))                 (( CI / Automation ))
+                 |                                      |
+                 | invokes                              | drives (SDK)
+                 v                                      v
+        .------------------------.          .------------------------.
+        | /reverse-engineer      |          | run-reverse-engineer.py|
+        | <<orchestrator command>>|<- - - - -| <<driver>>            |
+        '------------------------'  starts   '------------------------'
+           |                 |
+           | spawns          | invokes
+           v                 v
+  .------------------.   .------------------.        .---------------------.
+  | 6 Fact-Gathering |   | 3 Rendering      |        | /create-command     |
+  | Subagents        |   | Skills           |        | <<orchestrator cmd>>|
+  | <<analyzer x6>>  |   | <<renderer x3>>  |        '---------------------'
+  '------------------'   '------------------'           |          |
+     (read-only)         (write docs/)                  | WebFetch | check-commands
+                                                        v          v
+  .......... cross-cutting (declarative) ..........  (( code.claude.com ))  helpers.sh
+  .------------------.        .------------------.
+  | 4 Lifecycle Hooks|- - - ->| Shared Tracker / |
+  | <<hook x4>>      | append | Log Files        |
+  '------------------'        | <<shared state>> |
+                              '------------------'
+  .------------------.
+  | markdown rule    |  (scoped to *.broken_md — ordinal ordered lists)
+  | <<policy>>       |
+  '------------------'
 ```
-
----
 
 ## Element & Relationship Key
 
-| Element | Stereotype | Responsibility |
-|---|---|---|
-| CLAUDE.md | `<<context>>` | Persistent project context injected into every Claude Code session |
-| overview.md | `<<guide>>` | Human-readable study guide; indexes all 9 feature demos |
-| reverse-engineer.md | `<<orchestrator>>` | 4-phase command: inventory → 6 agents → 3 skills → verify 11 files |
-| create-command.md | `<<scaffolder>>` | Generates new slash command files from user-supplied name, description, and tool list |
-| tech-stack agent | `<<agent: haiku>>` | Read-only fact gatherer: languages, frameworks, build/run, runtimes |
-| module-map agent | `<<agent: sonnet>>` | Read-only fact gatherer: internal structure and call graph |
-| external-integrations agent | `<<agent: haiku>>` | Read-only fact gatherer: databases, queues, third-party APIs, auth |
-| data-flows agent | `<<agent: sonnet>>` | Read-only fact gatherer: end-to-end request/transaction paths |
-| deployment-infra agent | `<<agent: haiku>>` | Read-only fact gatherer: containers, CI/CD, IaC, startup topology |
-| runtime-process agent | `<<agent: sonnet>>` | Read-only fact gatherer: processes, concurrency, scheduled jobs |
-| c4-documentation skill | `<<skill>>` | Renders C4-model diagrams; writes 4 files to `docs/c4/` |
-| 4plus1-documentation skill | `<<skill>>` | Renders Kruchten 4+1 views; writes 5 files to `docs/4plus1/` |
-| project-overview skill | `<<skill>>` | Renders standalone project overview; writes `docs/overview.md` |
-| log-subagent.sh | `<<hook: SubagentStop>>` | Appends completing agent's name to tracker and subagents.log |
-| guard-reverse-engineer-docs.sh | `<<hook: PreToolUse>>` | Reads tracker; issues `permissionDecision: ask` if any of the 6 agents are missing |
-| turn-start.sh | `<<hook: PromptSubmit>>` | Records start timestamp and prompt text to `.turn-start` |
-| turn-complete.sh | `<<hook: Stop>>` | Computes elapsed time; appends TSV row to `turn-completions.log` |
-| markdown.md | `<<rule: path-scoped>>` | Constrains list formatting in `*.broken_md` files |
+| Element | Description |
+|---|---|
+| `(( Developer / User ))` | Human invoking slash commands inside a Claude Code session. |
+| `(( CI / Automation ))` | Non-interactive caller of the Python driver. |
+| `/reverse-engineer <<orchestrator command>>` | The 4-phase pipeline; the **only** component allowed to spawn subagents or invoke skills. |
+| `run-reverse-engineer.py <<driver>>` | Starts the orchestrator headlessly via the Agent SDK. |
+| `/create-command <<orchestrator cmd>>` | Secondary command that scaffolds new slash commands. |
+| `6 Fact-Gathering Subagents <<analyzer>>` | tech-stack, module-map, external-integrations, data-flows, deployment-infra, runtime-process. Read-only; return fixed-schema summaries. |
+| `3 Rendering Skills <<renderer>>` | c4-documentation, 4plus1-documentation, project-overview. Consume merged facts; write docs; never call subagents or each other. |
+| `4 Lifecycle Hooks <<hook>>` | log-subagent, guard-reverse-engineer-docs, turn-start, turn-complete. Declarative cross-cutting behavior wired in settings.json. |
+| `Shared Tracker / Log Files <<shared state>>` | `.claude/logs/` — coordination channel (tracker + logs), not in-process state. |
+| `markdown rule <<policy>>` | `.claude/rules/markdown.md` — behavior constraint scoped to `*.broken_md` files (ordered lists as ordinal text). |
 
 | Relationship | Description |
 |---|---|
-| reverse-engineer → agents (×6) | Spawns six agents concurrently via Agent tool |
-| reverse-engineer → skills (×3) | Invokes skills sequentially via Skill tool |
-| create-command → code.claude.com | Fetches current slash-command spec via WebFetch |
-| log-subagent.sh → tracker | Writes (appends) completing agent name |
-| guard hook → tracker | Reads tracker to enforce completeness before doc writes |
+| Driver - -> command | The Python driver starts the orchestrator via SDK `query()`. |
+| command → subagents | Spawns the six analyzers (fan-out). |
+| command → skills | Invokes the three renderers (fan-in synthesis). |
+| /create-command → code.claude.com / helpers.sh | Fetches live docs (WebFetch) and lists existing commands (check-commands). |
+| hooks - -> shared state | Hooks append to / read the tracker and logs. |
+
+**Enforced acyclic structure:** agents and skills are siblings; neither depends on the other, and neither calls back into the command. All coordination flows one way (command → peers), with hooks observing lifecycle events out-of-band.
