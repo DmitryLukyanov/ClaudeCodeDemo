@@ -17,14 +17,18 @@ ClaudeCodeDemo is a hands-on study guide demonstrating real-world usage of Claud
 | Sub-agents | Spawning specialized or parallel agents via `Agent` tool | `.claude/commands/audit.md` |
 | Hooks | Shell commands triggered by Claude Code lifecycle events | `.claude/settings.json` |
 | MCP Servers | External tools and context via Model Context Protocol | `.claude/settings.json` |
-| External Agents | Third-party agent frameworks (e.g., superpowers) | `overview.md` §8 |
+| External Skills | Third-party skill frameworks (e.g., superpowers) | `overview.md` §8 |
+| Agent SDK | Running agents programmatically from Python | `scripts/run-reverse-engineer.py` |
 
 ## Repository Layout
 
 ```
 ClaudeCodeDemo/
 ├── CLAUDE.md              # This file
+├── README.md              # Setup, quick start, and script usage
 ├── overview.md            # Master index: one scenario per feature
+├── scripts/
+│   └── run-reverse-engineer.py  # Agent SDK demo: runs /reverse-engineer headlessly
 └── .claude/
     ├── settings.json      # Hooks and MCP server configuration
     ├── commands/          # Slash command definitions (*.md) — invokable with /name
@@ -52,4 +56,8 @@ When adding a new demo: update `overview.md` first, then create the files in `.c
 
 ## Working with superpowers
 
-[superpowers](https://github.com/obra/superpowers) integrates via MCP. Install it once globally, then register it in `.claude/settings.json`. See `overview.md` §8 for the exact steps — no extra files needed.
+[superpowers](https://github.com/obra/superpowers) is a Claude Code plugin with ~14 development workflow skills. Install it once with `/plugin install superpowers@claude-plugins-official`. See `overview.md` §8 for the scenario and usage.
+
+## Agent SDK script
+
+`scripts/run-reverse-engineer.py` runs `/reverse-engineer` headlessly via the Agent SDK — useful for CI or cost-gated automation. Requires `pip install claude-agent-sdk`. See `README.md` for full usage and `overview.md` §10 for the feature explanation.

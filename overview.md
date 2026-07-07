@@ -192,3 +192,28 @@ This file is the study guide for the ClaudeCodeDemo repository. Each section cov
 2. Type: `/reverse-engineer .`
 3. Watch the six agents run in parallel, then the three skills render docs.
 4. Review the eleven files under `docs/`, `.claude/logs/subagents.log` to confirm all six agents ran, and `.claude/logs/turn-completions.log` for the total run time.
+
+---
+
+## 10. Agent SDK — running agents from your own code
+
+**What it is:** The [Claude Agent SDK](https://code.claude.com/docs/en/agent-sdk/agent-loop) lets you embed Claude Code's agent loop in your own Python or TypeScript programs. You call `query()` with a prompt and options, iterate over the message stream, and handle the structured result — same agent, same tools, same hooks, but driven by code instead of a human at a terminal.
+
+**When to use it:** CI/CD pipelines, cost-gated automation, nightly doc generation, or any workflow where you need programmatic control over what runs, how much it can spend, and what happens when it finishes.
+
+**Real-life scenario:** You want to regenerate architecture docs nightly in CI. With the Agent SDK you run `/reverse-engineer` headlessly, cap it at $2.00 so a runaway session can't inflate your bill, exit with a non-zero code if it fails (so the CI job turns red), and print the exact cost to the job log. If the codebase is large and hits the turn limit, the session ID lets you resume from where it stopped rather than starting over.
+
+**Files involved:**
+- `scripts/run-reverse-engineer.py` — self-contained example: runs `/reverse-engineer`, evaluates all result subtypes, prints cost + session ID, exits with the right code for CI
+
+**How to run:**
+1. Install the SDK:
+   ```
+   pip install claude-agent-sdk
+   ```
+2. Run against this repo (or pass any path):
+   ```
+   python scripts/run-reverse-engineer.py .
+   ```
+3. Watch the cost, turn count, and session ID print at the end.
+4. To simulate a budget hit, lower `max_budget_usd` to `0.01` in the script and re-run — you'll see the `error_max_budget_usd` branch fire and a resume hint printed.
